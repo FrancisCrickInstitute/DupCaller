@@ -17,7 +17,8 @@
 # with the direct CLI and the same options.
 #
 # Usage: run_nextflow_pipeline.sh OUTDIR [PROFILE] [CASE ...]
-#   PROFILE defaults to "docker"; pass "singularity" to use that instead.
+#   PROFILE defaults to "docker"; pass "singularity" to use that instead,
+#   or "docker,arm" on Apple Silicon.
 #   CASE (default: "default") selects which optional inputs are set; each
 #   case publishes to OUTDIR/results/CASE/mock and reuses earlier cases'
 #   cached tasks (-resume, shared work dir):
@@ -112,10 +113,9 @@ for case in "${CASES[@]}"; do
 
     echo "[run] case ${case} (profile: ${PROFILE})"
     "$NEXTFLOW" run "${REPO_ROOT}/nextflow/DupCaller.nf" \
-        -c "${REPO_ROOT}/nextflow/nextflow.config" \
         -c "${SCRIPT_DIR}/nextflow_test.config" \
         -c "case_${case}.config" \
-        -profile "${PROFILE}",local \
+        -profile "${PROFILE}" \
         -w work \
         ${IMAGE_ARGS[@]+"${IMAGE_ARGS[@]}"} \
         -resume

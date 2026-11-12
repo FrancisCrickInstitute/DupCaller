@@ -2,9 +2,9 @@ name: Build
 
 on:
   push:
-    branches: [main, dev]
+    branches: [main, dev, crick]
   pull_request:
-    branches: [main]
+    branches: [main, crick]
 
 jobs:
   build:
@@ -87,6 +87,38 @@ jobs:
           pytest tests/mock_pipeline/ -v \
             --ignore=tests/mock_pipeline/test_mock_pipeline_nextflow.py
 
+  # Stub runs: every run mode reaches its processes and bad parameters are
+  # refused. No container is pulled.
+  nextflow-wiring:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Install Nextflow
+        env:
+          NXF_VER: "26.04.6"
+        run: |
+          # The installer writes ./nextflow, which would collide with the
+          # repo's nextflow/ directory.
+          mkdir -p "$RUNNER_TEMP/nextflow-install"
+          cd "$RUNNER_TEMP/nextflow-install"
+          curl -fsSL https://get.nextflow.io | bash
+          sudo mv nextflow /usr/local/bin/
+
+      - name: Run wiring and parameter tests
+        run: |
+          pip install pytest
+          pytest tests/nextflow -v
+
   # The Nextflow test runs the DupCaller image built from this commit, not a
   # published one, so Dockerfile and source changes are tested before release.
   build-image:
@@ -97,9 +129,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # Must match manifest.nextflowVersion in nextflow/nextflow.config
-        # (oldest and newest supported); bump both together.
-        nextflow-version: ["23.10.1", "24.10.4"]
+        # manifest.nextflowVersion in nextflow/nextflow.config is >=26.04.0.
+        nextflow-version: ["26.04.6"]
     uses: ./.github/workflows/nextflow-mock.yml
     with:
       image: dupcaller:ci

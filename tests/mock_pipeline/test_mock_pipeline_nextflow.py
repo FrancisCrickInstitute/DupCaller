@@ -23,6 +23,7 @@ are mapped back to the barcodes they stand for.
 Skipped automatically unless nextflow is on PATH and either a reachable
 docker daemon or singularity is available.
 """
+import os
 import re
 import shutil
 import subprocess
@@ -95,7 +96,8 @@ def pipeline_output(tmp_path_factory):
         pytest.skip(f"required tool(s) not available: {', '.join(missing)}")
 
     outdir = tmp_path_factory.mktemp("mock_pipeline_nextflow_run")
-    profile = _container_profile()
+    # NEXTFLOW_PROFILE overrides the detected one, e.g. docker,arm on Apple Silicon.
+    profile = os.environ.get("NEXTFLOW_PROFILE") or _container_profile()
     subprocess.run(
         [
             "bash",

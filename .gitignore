@@ -30,6 +30,12 @@ MANIFEST
 # Claude-specific files
 .claude/
 
+# Nextflow run state
+.nextflow/
+.nextflow.log*
+work/
+results/
+
 # Temporary directories
 tmp/
 temp/
@@ -42,7 +48,6 @@ CHANGES_SUMMARY.md
 # Test data and local test runs
 test/
 test2/
-nextflow/
 nextflow/test/
 nextflow/test_pipeline.sh
 
@@ -60,3 +65,6 @@ slurm-*.out
 # would otherwise swallow.
 !tests/mock_pipeline/expected/**/tmp/
 !tests/mock_pipeline/expected/**/tmp/**
+
+# Local environment
+.venv/

@@ -4,6 +4,21 @@ All notable changes to DupCaller are recorded here, most recent first.
 
 ## [Unreleased]
 
+### Changed (Crick fork)
+- Nextflow: `DupCaller.nf` is split into one module per process under `nextflow/modules/local/`, each naming its container and carrying a `stub:` block. The commands each process runs are unchanged.
+- Nextflow: requires 26.04.0 or later. The boolean parameters are typed, so `--skip_index false` on the command line is read as a boolean, and an undeclared parameter is refused at launch.
+- Nextflow: `pipeline.config` is removed; `nextflow.config` holds every default and is read automatically, so no `-c` file is needed. Resource caps use `resourceLimits`; `threads` defaults to 16.
+- Nextflow: `-profile crick,nemo` (nf-core's Crick profile plus `conf/compute/nemo.config`) replaces the `slurm`, `lsf`, `sge`, `pbs`, `pbspro`, `awsbatch` and `local` profiles and their `"PLEASE CHANGE"` parameters. `arm` is added for Docker on Apple Silicon.
+- Nextflow: the pipeline no longer downloads a reference. `premade`, `premade_dir` and `premade_strain` become `genome`, `genome_base` and `genome_strain`, which read `<genome_base>/<genome>/`; `nextflow/bin/fetch_genome.sh` fills that folder once from the same manifests, with the same md5 checks. An existing `premade_dir` works as `genome_base`. `regions` defaults to the genome's autosomes and chrX.
+- Nextflow: the empty `assets/NO_*` placeholder files are removed; an absent optional input is an empty list.
+
+### Removed (Crick fork)
+- `nextflow/examples/run_dupcaller_sample.sh` and `run_sample.slurm.sh`.
+
+### Added (Crick fork)
+- `tests/nextflow/test_wiring.py`: stub runs checking that each run mode reaches its processes and that bad parameter combinations are refused; run in CI by the `nextflow-wiring` job.
+- `justfile` and `CLAUDE.md`.
+
 ### Added
 - Nextflow: `premade = "hg38"` / `"mm39"` (`--premade hg38` on the command line, `-G` in `examples/run_dupcaller_sample.sh`) replaces `reference`: the run downloads that genome's reference FASTA, DupCaller index, germline VCF and noise mask(s) (listed in `nextflow/assets/premade/<genome>.tsv`) with `gdown`, checks md5s where the source publishes them, unpacks and faidx-indexes the FASTA, stops before alignment if the DupCaller index does not match this DupCaller version, and builds the bwa-mem2 index. Everything is kept in `premade_dir` and reused by later runs. mm39 uses the germline VCF of `premade_strain` (none if unset) and calls chr1-chr19 + chrX unless `regions` is changed; `germline_vcf`/`noise_mask`, if set, replace the premade ones.
 

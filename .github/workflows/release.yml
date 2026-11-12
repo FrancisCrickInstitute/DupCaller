@@ -6,12 +6,12 @@ name: Release image
 # runner that pulls the published image anonymously.
 #
 # To release version X.Y.Z:
-#   1. In one commit, set __version__ in src/DupCaller_sub/__init__.py and
-#      DUPCALLER_VERSION in nextflow/nextflow.config to X.Y.Z, and add the
-#      CHANGELOG entry.
+#   1. In one commit, set __version__ in src/DupCaller_sub/__init__.py, and
+#      the dupcaller_container tag and manifest version in
+#      nextflow/nextflow.config, to X.Y.Z, and add the CHANGELOG entry.
 #   2. Push that commit, then the tag: git tag vX.Y.Z && git push origin vX.Y.Z
-# The `check-version` job fails the release if the tag and both versions
-# disagree.
+# The `check-version` job fails the release if the tag and those three
+# versions disagree.
 #
 # One-time setup: the GHCR package (github.com/orgs/AlexandrovLab/packages/
 # container/package/dupcaller) must stay public, and under Package settings
@@ -38,10 +38,11 @@ jobs:
         run: |
           tag="${GITHUB_REF_NAME#v}"
           pkg=$(sed -n 's/^__version__ = "\(.*\)"/\1/p' src/DupCaller_sub/__init__.py)
-          nf=$(sed -n "s/^def DUPCALLER_VERSION = '\(.*\)'/\1/p" nextflow/nextflow.config)
-          echo "tag=$tag __version__=$pkg DUPCALLER_VERSION=$nf"
-          if [ "$tag" != "$pkg" ] || [ "$tag" != "$nf" ]; then
-            echo "::error::tag ${GITHUB_REF_NAME} does not match __version__ ($pkg) and DUPCALLER_VERSION ($nf)"
+          nf=$(sed -n "s/^ *dupcaller_container = '.*:\(.*\)'/\1/p" nextflow/nextflow.config)
+          manifest=$(sed -n "s/^ *version  *= '\(.*\)'/\1/p" nextflow/nextflow.config)
+          echo "tag=$tag __version__=$pkg dupcaller_container=$nf manifest.version=$manifest"
+          if [ "$tag" != "$pkg" ] || [ "$tag" != "$nf" ] || [ "$tag" != "$manifest" ]; then
+            echo "::error::tag ${GITHUB_REF_NAME} does not match __version__ ($pkg), the dupcaller_container tag ($nf) and manifest.version ($manifest)"
             exit 1
           fi
           echo "version=$tag" >> "$GITHUB_OUTPUT"
@@ -58,7 +59,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        nextflow-version: ["23.10.1", "24.10.4"]
+        nextflow-version: ["26.04.6"]
     uses: ./.github/workflows/nextflow-mock.yml
     with:
       image: dupcaller:ci
@@ -102,7 +103,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        nextflow-version: ["23.10.1", "24.10.4"]
+        nextflow-version: ["26.04.6"]
     uses: ./.github/workflows/nextflow-mock.yml
     with:
       image: ghcr.io/alexandrovlab/dupcaller:${{ needs.check-version.outputs.version }}
