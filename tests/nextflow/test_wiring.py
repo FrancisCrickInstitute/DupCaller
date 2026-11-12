@@ -66,13 +66,19 @@ def run(tmp_path):
     touch(tmp_path / "bam", *(f"S1_{t}.mkdped.bam{x}" for t in ("tumor", "normal") for x in ("", ".bai")))
     touch(tmp_path / "bam_tumour_only", "S1_tumor.mkdped.bam", "S1_tumor.mkdped.bam.bai")
 
+    runs = []
+
     def run(*args, script=PIPELINE):
+        # A work directory per run, and tasks counted from each task's own header: the
+        # console's process lines differ between Nextflow's output modes.
+        work = tmp_path / f"work{len(runs)}"
+        runs.append(work)
         result = subprocess.run(
-            ["nextflow", "run", str(script), "-stub-run", "-c", "toy.config",
+            ["nextflow", "run", str(script), "-stub-run", "-c", "toy.config", "-work-dir", str(work),
              "--max_cpus", "1", "--max_memory", "2.GB", *args],
             cwd=tmp_path, capture_output=True, text=True, timeout=300, env={**os.environ, **ENV})
-        output = result.stdout + result.stderr
-        return result.returncode, output, Counter(re.findall(r"\[PROCESS [^\]]+\] (?:\w+:)*(\w+)", output))
+        headers = "".join(p.read_text() for p in work.glob("*/*/.command.run"))
+        return result.returncode, result.stdout + result.stderr, Counter(re.findall(r"^### name: '(?:\w+:)*(\w+)", headers, re.M))
 
     return run
 
@@ -151,7 +157,7 @@ def test_lanes_are_joined_and_an_empty_lane_skipped(run, tmp_path):
     code, output, ran = run("--sample_map", "lanes.map", "--reference", "ref.fa")
     assert code == 0, output
     assert "skipping the tumor lane empty_1.fq" in output.replace(str(tmp_path) + "/", "")
-    trims = {d.name: d for d in (tmp_path / "work").glob("*/*") if "TRIM_BARCODES" in (d / ".command.run").read_text()}
+    trims = {d.name: d for d in (tmp_path / "work0").glob("*/*") if "TRIM_BARCODES" in (d / ".command.run").read_text()}
     staged = sorted(sorted(p.relative_to(d).as_posix() for p in d.glob("r1_*/*")) for d in trims.values())
     assert staged == [["r1_1/n1.fq"], ["r1_1/t1.fq", "r1_2/t1b.fq"]]
 
