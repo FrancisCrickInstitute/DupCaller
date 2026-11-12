@@ -19,7 +19,9 @@ params {
 // Library protocols: barcode pattern (trim -p) and end trimming (call
 // -tt/-tr), as in the main README's Protocol Settings table, except UDSeq's
 // pattern: the Crick lab's libraries carry 7 skipped bases after the 8-base
-// barcode (dupcaller-crick's preset), where upstream's preset has none.
+// barcode (dupcaller-crick's preset), where upstream's preset has none. The
+// pattern takes UDSeq's end trimming, 15 and 8, not the 7 and 7 dupcaller-crick
+// ran it with (confirmed by the lab, 2026-11-12).
 def protocols() {
     [
         renanoseq: [barcode_pattern: 'NNNXXXX',      trim_template: 7,  trim_read: 7],

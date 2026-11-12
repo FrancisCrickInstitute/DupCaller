@@ -174,6 +174,8 @@ Without `--genome`, `--reference ref.fa` reads your own FASTA with its
 The UDSeq pattern is the Crick lab's (an 8-base barcode, then 7 skipped
 bases), not upstream's `NNNNNNNN`; the main README's
 [Protocol Settings](../README.md#protocol-settings) table is upstream's.
+The lab's earlier UDSeq runs used this pattern with end trimming of 7 and 7;
+UDSeq libraries need 15 and 8, which `udseq` sets.
 Names are matched case-insensitively, ignoring `-` and `_`. A pattern with
 `B` needs `--barcode_list`, the allowed barcodes one per line. Without
 `protocol`, the three parameters are used as set (defaults `NNNXXXX`, 7
