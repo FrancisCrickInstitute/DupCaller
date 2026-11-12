@@ -65,6 +65,39 @@ sample_id	tumor_fastq_1	tumor_fastq_2	normal_fastq_1	normal_fastq_2
 The normal columns are read only when each sample has its own normal to
 align, that is when neither `tumor_only` nor `normal_bam` is set.
 
+A sample sequenced over several lanes takes one row per lane, and its
+lanes are joined, in row order, before trimming. A row adds a tumour lane,
+and a normal lane when its normal columns are filled; leave them empty on
+the other rows, or repeat the same normal pair, which is used once:
+
+```
+sample_id	tumor_fastq_1	tumor_fastq_2	normal_fastq_1	normal_fastq_2
+S1	S1_L001_R1.fastq.gz	S1_L001_R2.fastq.gz	N1_R1.fastq.gz	N1_R2.fastq.gz
+S1	S1_L002_R1.fastq.gz	S1_L002_R2.fastq.gz
+```
+
+A lane with an empty file is skipped with a warning, as the lab's
+`merge_fastqs.sh` did. A sample's lanes must be all gzipped or all plain,
+because they are joined by concatenation.
+
+## Calling again from BAMs
+
+Each duplicate-marked BAM, its index and its MarkDuplicates metrics are
+copied to `${outdir}/bam/` (`--publish_bams false` turns this off). To call
+again with other settings, without trimming and aligning again, point
+`--from_bams` at that folder:
+
+```bash
+nextflow run nextflow/DupCaller.nf -profile crick,nemo \
+    --sample_map sample.map --genome hg38 --genome_base /path/to/dupcaller_genomes \
+    --from_bams results/bam --max_af 0.2 --outdir results_maf0.2
+```
+
+Only the sample map's `sample_id` column is read. Each sample's
+`<sample_id>_tumor.mkdped.bam`, and `<sample_id>_normal.mkdped.bam` unless
+`tumor_only` or `normal_bam` is set, must be in the folder. This replaces
+the lab's `call_variants.nf`.
+
 ## Reference genomes
 
 A genome's core files stay where they are at the Crick and are never
@@ -133,9 +166,12 @@ Without `--genome`, `--reference ref.fa` reads your own FASTA with its
 |---|---|---|---|---|
 | RE-NanoSeq | `renanoseq` | `NNNXXXX` | 7 | 7 |
 | NanoSeq v2 | `nanoseqv2` | `NNNXX` | 7 | 7 |
-| UDSeq | `udseq` | `NNNNNNNN` | 15 | 8 |
+| UDSeq | `udseq` | `NNNNNNNNXXXXXXX` | 15 | 8 |
 | META-CS | `metacs` | `B` then 19 `X` (Tn5 barcode from `barcode_list`, then the 19 nt ME) | 7 | 7 |
 
+The UDSeq pattern is the Crick lab's (an 8-base barcode, then 7 skipped
+bases), not upstream's `NNNNNNNN`; the main README's
+[Protocol Settings](../README.md#protocol-settings) table is upstream's.
 Names are matched case-insensitively, ignoring `-` and `_`. A pattern with
 `B` needs `--barcode_list`, the allowed barcodes one per line. Without
 `protocol`, the three parameters are used as set (defaults `NNNXXXX`, 7
@@ -185,7 +221,8 @@ sorted BAM. A cleared file is a sparse file of the original size, so it
 takes no disk space and `-resume` still reuses the finished tasks. Disk use
 per library peaks during alignment (trimmed FASTQs, about five times the
 input fq.gz, plus the sorted BAM) and afterwards is mostly the
-duplicate-marked BAM, which stays in the work directory. If a step must
+duplicate-marked BAM, which stays in the work directory and, unless
+`--publish_bams false`, a copy of it in `${outdir}/bam/`. If a step must
 rerun after its input was cleared, it stops with an error naming the
 upstream task whose work directory to delete.
 
@@ -211,14 +248,19 @@ Each sample's results are copied to `${outdir}/${sample_id}/`, the
 directory `DupCaller.py call -o` and `estimate -i` produce on their own
 (VCFs, coverage BEDs, error-profile tables, burden and signature outputs),
 plus `${outdir}/${sample_id}_estimate_params.log`. The outputs are
-described in [docs/](../docs/index.md). BAMs stay in the work directory.
+described in [docs/](../docs/index.md). The duplicate-marked BAMs and their
+metrics go to `${outdir}/bam/` ([Calling again from BAMs](#calling-again-from-bams)).
+
+hg38's calling regions are chr1 to chr22, chrX and chrY, as the lab calls
+them; upstream DupCaller's default leaves out chrY.
 
 ## Tests
 
 | Command | Checks | Needs |
 |---|---|---|
 | `just test-wiring` | Each run mode reaches the processes it should, and bad parameter combinations are refused (`tests/nextflow/`, stub runs) | Nextflow |
-| `just test-mock` | The whole pipeline on a 3.2 kb synthetic contig in 11 configurations, the default one compared with `tests/mock_pipeline/expected_matched_normal/` | Nextflow, Docker or Singularity |
+| `just test-mock` | The whole pipeline on a 3.2 kb synthetic contig in 13 configurations; the default, `metacs`, `lanes` and `recall` cases compared with `tests/mock_pipeline/expected_matched_normal/` | Nextflow, Docker or Singularity |
+| `just compare-to <ref>` | Every published file of every case, at `<ref>` and here | As `just test-mock` |
 
 A stub run executes each module's `stub:` block on empty files. It checks
 the wiring, and says nothing about a process's real command; the mock test

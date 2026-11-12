@@ -50,6 +50,21 @@ def run(tmp_path):
     (tmp_path / "sample.map").write_text(
         "sample_id\ttumor_fastq_1\ttumor_fastq_2\tnormal_fastq_1\tnormal_fastq_2\nS1\tt1.fq\tt2.fq\tn1.fq\tn2.fq\n")
     (tmp_path / "tumor.map").write_text("sample_id\ttumor_fastq_1\ttumor_fastq_2\nS1\tt1.fq\tt2.fq\n")
+    # S1's tumour over two lanes plus an empty one; its normal once, repeated on a second row.
+    touch(tmp_path, "t1b.fq", "t2b.fq", "empty_1.fq", "empty_2.fq")
+    for name in ("t1b.fq", "t2b.fq"):
+        (tmp_path / name).write_text("@r\nA\n+\nI\n")
+    (tmp_path / "t1.fq").write_text("@r\nA\n+\nI\n")
+    (tmp_path / "t2.fq").write_text("@r\nA\n+\nI\n")
+    (tmp_path / "n1.fq").write_text("@r\nA\n+\nI\n")
+    (tmp_path / "n2.fq").write_text("@r\nA\n+\nI\n")
+    (tmp_path / "lanes.map").write_text(
+        "sample_id\ttumor_fastq_1\ttumor_fastq_2\tnormal_fastq_1\tnormal_fastq_2\n"
+        "S1\tt1.fq\tt2.fq\tn1.fq\tn2.fq\n"
+        "S1\tt1b.fq\tt2b.fq\tn1.fq\tn2.fq\n"
+        "S1\tempty_1.fq\tempty_2.fq\t\t\n")
+    touch(tmp_path / "bam", *(f"S1_{t}.mkdped.bam{x}" for t in ("tumor", "normal") for x in ("", ".bai")))
+    touch(tmp_path / "bam_tumour_only", "S1_tumor.mkdped.bam", "S1_tumor.mkdped.bam.bai")
 
     def run(*args, script=PIPELINE):
         result = subprocess.run(
@@ -57,7 +72,7 @@ def run(tmp_path):
              "--max_cpus", "1", "--max_memory", "2.GB", *args],
             cwd=tmp_path, capture_output=True, text=True, timeout=300, env={**os.environ, **ENV})
         output = result.stdout + result.stderr
-        return result.returncode, output, Counter(re.findall(r"\[PROCESS [^\]]+\] (\w+)", output))
+        return result.returncode, output, Counter(re.findall(r"\[PROCESS [^\]]+\] (?:\w+:)*(\w+)", output))
 
     return run
 
@@ -75,7 +90,11 @@ TOY = ["--genome", "toy", "--genome_base", "genomes"]
     # A command-line `false` must arrive as a boolean, not the truthy string "false".
     ([*TUMOR_REF, "--normal_bam", "normal.bam", "--tumor_only", "false"], TUMOR),
     ([*REF, "--protocol", "META-CS", "--barcode_list", "barcodes.txt"], FULL),
-], ids=["matched_normal", "optional_resources", "tumor_only", "shared_normal_bam", "boolean_false", "metacs"])
+    (["--sample_map", "lanes.map", "--reference", "ref.fa"], FULL),
+    ([*REF, "--from_bams", "bam"], {"CALL_VARIANTS": 1, "ESTIMATE_BURDEN": 1}),
+    ([*TUMOR_REF, "--from_bams", "bam", "--tumor_only"], {"CALL_VARIANTS": 1, "ESTIMATE_BURDEN": 1}),
+], ids=["matched_normal", "optional_resources", "tumor_only", "shared_normal_bam", "boolean_false", "metacs",
+        "lanes", "from_bams", "from_bams_tumor_only"])
 def test_mode_runs_its_processes(run, args, expected):
     code, output, ran = run(*args)
     assert code == 0, output
@@ -97,9 +116,12 @@ def test_mode_runs_its_processes(run, args, expected):
     ([*REF, "--noise_mask", "plain.bed"], "must be bgzip-compressed"),
     ([*REF, "--premade", "hg38"], "premade"),
     ([*REF, "--skip_index", "false"], "skip_index"),
+    ([*REF, "--from_bams", "nowhere"], "params.from_bams = nowhere: not a folder"),
+    ([*REF, "--from_bams", "bam_tumour_only"], "S1_normal.mkdped.bam"),
 ], ids=["no_sample_map", "no_reference", "genome_and_reference", "genome_without_base", "unknown_genome",
         "genome_without_fasta", "genome_not_built", "unknown_protocol", "metacs_without_list", "list_without_B",
-        "tumor_only_and_normal_bam", "unindexed_mask", "removed_premade_param", "removed_skip_index_param"])
+        "tumor_only_and_normal_bam", "unindexed_mask", "removed_premade_param", "removed_skip_index_param",
+        "from_bams_not_a_folder", "from_bams_missing_normal"])
 def test_bad_parameters_are_refused(run, args, message):
     code, output, ran = run(*args)
     assert code != 0, output
@@ -123,3 +145,22 @@ def test_build_reference_writes_only_derived_files_then_the_genome_runs(run, tmp
     code, output, ran = run("--sample_map", "sample.map", *TOY)
     assert code == 0, output
     assert ran == FULL
+
+
+def test_lanes_are_joined_and_an_empty_lane_skipped(run, tmp_path):
+    code, output, ran = run("--sample_map", "lanes.map", "--reference", "ref.fa")
+    assert code == 0, output
+    assert "skipping the tumor lane empty_1.fq" in output.replace(str(tmp_path) + "/", "")
+    trims = {d.name: d for d in (tmp_path / "work").glob("*/*") if "TRIM_BARCODES" in (d / ".command.run").read_text()}
+    staged = sorted(sorted(p.relative_to(d).as_posix() for p in d.glob("r1_*/*")) for d in trims.values())
+    assert staged == [["r1_1/n1.fq"], ["r1_1/t1.fq", "r1_2/t1b.fq"]]
+
+
+def test_publish_bams_false_on_the_command_line_publishes_nothing(run, tmp_path):
+    code, output, _ = run(*REF, "--publish_bams", "false", "--outdir", "out")
+    assert code == 0, output
+    assert not (tmp_path / "out" / "bam").exists()
+    code, output, _ = run(*REF, "--outdir", "out2")
+    assert code == 0, output
+    assert sorted(p.name for p in (tmp_path / "out2" / "bam").iterdir()) == sorted(
+        f"S1_{t}.{x}" for t in ("tumor", "normal") for x in ("mkdped.bam", "mkdped.bam.bai", "mkdp_metrics.txt"))

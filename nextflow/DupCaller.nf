@@ -17,18 +17,19 @@ params {
 }
 
 // Library protocols: barcode pattern (trim -p) and end trimming (call
-// -tt/-tr), as in the main README's Protocol Settings table.
+// -tt/-tr), as in the main README's Protocol Settings table, except UDSeq's
+// pattern: the Crick lab's libraries carry 7 skipped bases after the 8-base
+// barcode (dupcaller-crick's preset), where upstream's preset has none.
 def protocols() {
     [
         renanoseq: [barcode_pattern: 'NNNXXXX',      trim_template: 7,  trim_read: 7],
         nanoseqv2: [barcode_pattern: 'NNNXX',        trim_template: 7,  trim_read: 7],
-        udseq:     [barcode_pattern: 'NNNNNNNN',     trim_template: 15, trim_read: 8],
+        udseq:     [barcode_pattern: 'NNNNNNNNXXXXXXX', trim_template: 15, trim_read: 8],
         // Tn5 transposon barcode from barcode_list, then the 19 nt ME.
         metacs:    [barcode_pattern: 'B' + 'X' * 19, trim_template: 7,  trim_read: 7],
     ]
 }
 
-def chromosomes(n) { (1..n).collect { "chr${it}" }.join(' ') + ' chrX' }
 
 // Checks the parameters, then resolves those that genome, protocol and
 // tumor_only decide. Processes take the result as inputs, never by calling a
@@ -58,6 +59,8 @@ def resolveSettings() {
     if (params.barcode_list && !barcode_pattern.contains('B'))
         error "params.barcode_list is set but barcode pattern ${barcode_pattern} has no B, so the list would not be used"
 
+    if (params.from_bams && !file(params.from_bams).isDirectory())
+        error "params.from_bams = ${params.from_bams}: not a folder; give the bam/ folder an earlier run published"
     if (params.tumor_only && params.normal_bam)
         error "params.tumor_only and params.normal_bam are both set: tumor_only calls without a matched normal, so leave normal_bam unset"
     // Without a matched normal an uncapped max_af would call germline
@@ -72,7 +75,8 @@ def resolveSettings() {
         reference:       genome ? genome.fasta : params.reference,
         germline_vcf:    params.germline_vcf ?: genome?.germline_vcf,
         noise_mask:      masks instanceof List ? masks : [masks],
-        regions:         params.regions ?: genome?.regions ?: chromosomes(22),
+        // Without a genome entry, hg38's autosomes, X and Y, as the lab calls them.
+        regions:         params.regions ?: genome?.regions ?: (1..22).collect { "chr${it}" }.join(' ') + ' chrX chrY',
         barcode_pattern: barcode_pattern,
         trim_template:   protocol ? protocol.trim_template : params.trim_template,
         trim_read:       protocol ? protocol.trim_read     : params.trim_read,
@@ -87,6 +91,47 @@ def indexed(p, param_name) {
     if (!p.toString().endsWith('.gz'))
         error "params.${param_name} = ${p}: must be bgzip-compressed (.gz) with a tabix index (.gz.tbi) next to it"
     [file(p, checkIfExists: true), file("${p}.tbi", checkIfExists: true)]
+}
+
+// A sample's reads may span several rows, one per lane: each row adds a tumour
+// lane, and a normal lane when its normal_fastq_1/2 are filled. A lane with an
+// empty file is skipped with a warning, as are repeats of a lane already listed.
+def laneRows(row, types) {
+    types.collect { type ->
+        def fq1 = row["${type}_fastq_1"]
+        def fq2 = row["${type}_fastq_2"]
+        if (!fq1 && !fq2) return null
+        if (!fq1 || !fq2) error "sample ${row.sample_id}: ${type}_fastq_1 and ${type}_fastq_2 must both be set or both empty"
+        def lane = [file(fq1, checkIfExists: true), file(fq2, checkIfExists: true)]
+        if (lane.any { it.size() == 0 }) {
+            log.warn "sample ${row.sample_id}: skipping the ${type} lane ${fq1}, ${fq2}: a file is empty"
+            return null
+        }
+        [row.sample_id, type] + lane
+    }.findAll()
+}
+
+workflow alignReads {
+    take:
+    rows_ch
+    types
+    fasta
+    bwa_index
+    barcode_pattern
+
+    main:
+    def lanes_ch = rows_ch
+        .flatMap { row -> laneRows(row, types) }
+        .unique()
+        .map { sid, type, fq1, fq2 -> [[sid, type], fq1, fq2] }
+        .groupTuple()
+        .map { key, fq1s, fq2s -> [key[0], key[1], fq1s, fq2s] }
+    def barcode_list = params.barcode_list ? file(params.barcode_list, checkIfExists: true) : []
+    def trimmed_ch = TRIM_BARCODES(lanes_ch, barcode_list, barcode_pattern)
+    def aligned_ch = BWA_MEM2_SORT(trimmed_ch, fasta, bwa_index)
+
+    emit:
+    MARK_DUPLICATES(aligned_ch).bam
 }
 
 workflow {
@@ -109,26 +154,23 @@ workflow {
     def bwa_index = bwaMem2IndexSuffixes().collect { file("${prefix}${it}") }
     def dc_index  = [file(fai)] + dupcallerIndexSuffixes().collect { file("${prefix}${it}") }
 
-    // (sample_id, type, fq1, fq2). The normal_fastq_1/2 columns are read
-    // only when each sample has its own normal to align.
+    // Each sample's own normal is aligned unless normal_bam (one normal for every
+    // sample) or tumor_only is set.
     def align_normal = !params.normal_bam && !params.tumor_only
-    def reads_ch = channel.fromPath(params.sample_map, checkIfExists: true)
+    def types = align_normal ? ['tumor', 'normal'] : ['tumor']
+    def rows_ch = channel.fromPath(params.sample_map, checkIfExists: true)
         .splitCsv(header: true, sep: '\t', strip: true)
-        .flatMap { row ->
-            def rows = [[row.sample_id, 'tumor',
-                         file(row.tumor_fastq_1, checkIfExists: true),
-                         file(row.tumor_fastq_2, checkIfExists: true)]]
-            if (align_normal)
-                rows << [row.sample_id, 'normal',
-                         file(row.normal_fastq_1, checkIfExists: true),
-                         file(row.normal_fastq_2, checkIfExists: true)]
-            rows
-        }
 
-    def barcode_list = params.barcode_list ? file(params.barcode_list, checkIfExists: true) : []
-    def trimmed_ch   = TRIM_BARCODES(reads_ch, barcode_list, s.barcode_pattern)
-    def aligned_ch   = BWA_MEM2_SORT(trimmed_ch, fasta, bwa_index)
-    def markdup_ch   = MARK_DUPLICATES(aligned_ch)
+    // (sample_id, type, BAM, BAI) after duplicate marking: aligned here, or the
+    // BAMs an earlier run published to <outdir>/bam/ (from_bams), to call again.
+    def markdup_ch = params.from_bams
+        ? rows_ch.map { row -> row.sample_id }.unique().flatMap { sid ->
+              types.collect { type ->
+                  def bam = "${params.from_bams}/${sid}_${type}.mkdped.bam"
+                  [sid, type, file(bam, checkIfExists: true), file("${bam}.bai", checkIfExists: true)]
+              }
+          }
+        : alignReads(rows_ch, types, fasta, bwa_index, s.barcode_pattern)
 
     def tumor_ch = markdup_ch
         .filter { _sid, type, _bam, _bai -> type == 'tumor' }

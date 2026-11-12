@@ -23,7 +23,7 @@ test-wiring:
 
 # The whole pipeline in containers, 11 cases. On Apple Silicon: just test-mock docker,arm
 test-mock profile="":
-    NEXTFLOW_PROFILE={{profile}} .venv/bin/pytest tests/mock_pipeline/test_mock_pipeline_nextflow.py -q -rs
+    PATH="$PWD/.venv/bin:$PATH" NEXTFLOW_PROFILE={{profile}} .venv/bin/pytest tests/mock_pipeline/test_mock_pipeline_nextflow.py -q -rs
 
 # Run all 11 mock cases at REF and at the working tree, then diff every published file.
 # REF_NXF is the Nextflow version REF supports (before the restructure: 24.10.4).

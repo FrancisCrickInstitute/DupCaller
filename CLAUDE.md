@@ -34,7 +34,7 @@ just dev                    # .venv with the package editable and pytest
 just test                   # unit tests, then the wiring tests
 just test-wiring            # stub runs only: about a minute, no containers
 just test-mock [profile]    # 11 real runs in containers; `docker,arm` on Apple Silicon
-just compare-to <ref> [nxf] # all 11 cases at <ref> and here, every published file diffed
+just compare-to <ref> [nxf] # every mock case at <ref> and here, every published file diffed
 ```
 
 Run the pipeline as `NXF_VER=26.04.6 nextflow run nextflow/DupCaller.nf -profile crick,nemo ...`.
@@ -60,7 +60,7 @@ Run the pipeline as `NXF_VER=26.04.6 nextflow run nextflow/DupCaller.nf -profile
   mode, add a row to `tests/nextflow/test_wiring.py`.
 - **A stub run checks wiring only, and the mock test compares only two cases with expected
   outputs.** Before calling a pipeline change output-neutral, run `just compare-to <old-ref>`,
-  which diffs every published file of all 11 cases (`.claude/knowledge/compare-outputs-old-vs-new.md`).
+  which diffs every published file of every mock case (`.claude/knowledge/compare-outputs-old-vs-new.md`).
 - **Core genome files are never copied.** `conf/genomes.config` points at them where they live;
   `build_reference.nf` writes only derived files (indexes, the repeat table, a missing `.fai`) into
   `<genome_base>/<genome>/`, named after the FASTA. `DupCaller.nf` builds no index: a genome

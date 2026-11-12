@@ -50,6 +50,8 @@ CASES = [
     "tumor_only",
     "udseq",
     "metacs",
+    "lanes",
+    "recall",
 ]
 OUTPUTS = [
     "mock/SBS/mock_sbs.vcf",
@@ -211,6 +213,31 @@ def test_default_case_matches_direct_cli_expected(pipeline_output, rel_path):
     assert actual_path.exists(), f"nextflow pipeline did not produce {rel_path}"
     diffs = compare_file(EXPECTED_MATCHED_DIR / rel_path, actual_path)
     assert not diffs, "\n".join(diffs)
+
+
+@pytest.mark.parametrize("case", ["lanes", "recall"])
+@pytest.mark.parametrize(
+    "rel_path",
+    sorted(
+        str(p.relative_to(EXPECTED_MATCHED_DIR))
+        for p in EXPECTED_MATCHED_DIR.rglob("*")
+        if p.is_file()
+    ),
+)
+def test_lanes_and_recall_match_direct_cli_expected(pipeline_output, case, rel_path):
+    """Joining lanes, and calling again from the default case's published BAMs,
+    must both reproduce the default case's results exactly."""
+    actual_path = pipeline_output / case / rel_path
+    assert actual_path.exists(), f"{case}: nextflow pipeline did not produce {rel_path}"
+    diffs = compare_file(EXPECTED_MATCHED_DIR / rel_path, actual_path)
+    assert not diffs, "\n".join(diffs)
+
+
+def test_default_case_publishes_its_bams(pipeline_output):
+    names = sorted(p.name for p in (pipeline_output / "default" / "bam").iterdir())
+    assert names == sorted(
+        f"mock_{t}.{x}" for t in ("tumor", "normal") for x in ("mkdped.bam", "mkdped.bam.bai", "mkdp_metrics.txt")
+    )
 
 
 def _map_codes_back(vcf_path, code_map):

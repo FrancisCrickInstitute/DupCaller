@@ -5,7 +5,8 @@ Usage: compare_runs.py OLD/results NEW/results
 
 Text and .npz files go through compare_outputs.compare_file (exact tokens,
 numbers to 1e-6). The only content allowed to differ is the "Run time:" line
-of a *_params.log and a PDF's /CreationDate. Exits 1 on any other difference.
+of a *_params.log and a PDF's /CreationDate. A file only NEW has is listed as
+a new output, not judged; a file only OLD has, or any other difference, exits 1.
 """
 import gzip
 import re
@@ -43,12 +44,14 @@ def main(old, new):
         p.relative_to(root) for p in root.rglob("*") if p.is_file() and not p.name.endswith(IGNORED_SUFFIX)
     }
     a, b = files(old), files(new)
-    problems = [f"{p}: only in {'old' if p in a else 'new'}" for p in sorted(a ^ b)]
+    problems = [f"{p}: only in old" for p in sorted(a - b)]
     for rel in sorted(a & b):
         problems += [f"{rel}: {d}" for d in differs(old / rel, new / rel)[:3]]
-    print(f"{len(a & b)} files compared, {len(problems)} differences")
+    print(f"{len(a & b)} files compared, {len(problems)} differences, {len(b - a)} new outputs")
     for p in problems:
         print(f"  {p}")
+    for p in sorted(b - a):
+        print(f"  new: {p}")
     return 1 if problems else 0
 
 

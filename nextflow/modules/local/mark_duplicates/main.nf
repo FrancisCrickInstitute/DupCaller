@@ -3,6 +3,8 @@ process MARK_DUPLICATES {
     cache 'lenient'   // see BWA_MEM2_SORT
     // 4.3.0.0--py36hdfd78af_0
     container 'quay.io/biocontainers/gatk4@sha256:49f91bc0fcb704271c18a519715bf161141c0a00be4cf49c7ef2866de1f59a46'
+    // Kept for calling again later without realigning (DupCaller.nf --from_bams).
+    publishDir "${params.outdir}/bam", mode: 'copy', enabled: params.publish_bams.toString() != 'false'
 
     input:
     tuple val(sample_id), val(type), path(bam), path(bai)
@@ -10,7 +12,8 @@ process MARK_DUPLICATES {
     output:
     tuple val(sample_id), val(type),
           path("${sample_id}_${type}.mkdped.bam"),
-          path("${sample_id}_${type}.mkdped.bam.bai")
+          path("${sample_id}_${type}.mkdped.bam.bai"), emit: bam
+    path "${sample_id}_${type}.mkdp_metrics.txt", emit: metrics
 
     script:
     // Sort files spill to the task work dir, not Java's default tmp dir
@@ -47,6 +50,6 @@ process MARK_DUPLICATES {
 
     stub:
     """
-    touch ${sample_id}_${type}.mkdped.bam ${sample_id}_${type}.mkdped.bam.bai
+    touch ${sample_id}_${type}.mkdped.bam ${sample_id}_${type}.mkdped.bam.bai ${sample_id}_${type}.mkdp_metrics.txt
     """
 }

@@ -39,6 +39,10 @@
 #     metacs       protocol = "metacs" + barcode_list, on META-CS-style
 #                  reads from make_barcode_list_reads.py (barcode_map.tsv
 #                  maps their codes back to the original barcodes)
+#     lanes        the tumour FASTQs split into two lanes plus an empty one,
+#                  one row each; joined, they are the default case's reads
+#     recall       from_bams = the BAMs the default case published (run
+#                  after "default")
 #     all          every case above, in order
 #
 # Requires nextflow and python (with pysam, a DupCaller dependency) on
@@ -56,7 +60,7 @@ shift $(( $# >= 2 ? 2 : $# ))
 CASES=("$@")
 [ ${#CASES[@]} -eq 0 ] && CASES=(default)
 if [ "${CASES[0]}" = "all" ]; then
-    CASES=(default germline noise_mask target_bed indel_bed gene_bed dilute normal_bam tumor_only udseq metacs)
+    CASES=(default germline noise_mask target_bed indel_bed gene_bed dilute normal_bam tumor_only udseq metacs lanes recall)
 fi
 
 NEXTFLOW="${NEXTFLOW:-nextflow}"
@@ -81,6 +85,12 @@ printf 'sample_id\ttumor_fastq_1\ttumor_fastq_2\nmock\ttumor_1.fastq\ttumor_2.fa
 "$PYTHON" "${SCRIPT_DIR}/make_barcode_list_reads.py" tumor_1.fastq tumor_2.fastq \
     metacs_1.fastq metacs_2.fastq barcodes.txt barcode_map.tsv
 printf 'sample_id\ttumor_fastq_1\ttumor_fastq_2\tnormal_fastq_1\tnormal_fastq_2\nmock\tmetacs_1.fastq\tmetacs_2.fastq\tmetacs_1.fastq\tmetacs_2.fastq\n' > sample_metacs.map
+for m in 1 2; do
+    head -n 96 "tumor_${m}.fastq" > "lane1_${m}.fastq"
+    tail -n +97 "tumor_${m}.fastq" > "lane2_${m}.fastq"
+    : > "lane3_${m}.fastq"
+done
+printf 'sample_id\ttumor_fastq_1\ttumor_fastq_2\tnormal_fastq_1\tnormal_fastq_2\nmock\tlane1_1.fastq\tlane1_2.fastq\tnormal_1.fastq\tnormal_2.fastq\nmock\tlane2_1.fastq\tlane2_2.fastq\t\t\nmock\tlane3_1.fastq\tlane3_2.fastq\t\t\n' > sample_lanes.map
 
 R="${OUTDIR}/resources"
 : > task_dirs.txt
@@ -114,6 +124,10 @@ for case in "${CASES[@]}"; do
         tumor_only) extra=$'tumor_only = true\n    sample_map = "sample_tumor_only.map"' ;;
         udseq)      extra='protocol = "udseq"' ;;
         metacs)     extra=$'protocol = "metacs"\n    barcode_list = "'"${OUTDIR}"$'/barcodes.txt"\n    sample_map = "sample_metacs.map"' ;;
+        lanes)      extra='sample_map = "sample_lanes.map"' ;;
+        recall)
+            [ -d "${OUTDIR}/results/default/bam" ] || { echo "recall case needs the default case's published BAMs -- run 'default' first" >&2; exit 1; }
+            extra="from_bams = \"${OUTDIR}/results/default/bam\"" ;;
         *) echo "unknown case: $case" >&2; exit 1 ;;
     esac
     printf 'params {\n    outdir = "%s/results/%s"\n    %s\n}\n' "$OUTDIR" "$case" "$extra" > "case_${case}.config"
