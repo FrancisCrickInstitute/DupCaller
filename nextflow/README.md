@@ -29,18 +29,20 @@ builds the indexes `DupCaller.nf` reads (see
 
 ```bash
 nextflow run nextflow/DupCaller.nf \
-    -profile crick,nemo \
+    -profile crick \
     --sample_map sample.map \
     --genome hg38 --genome_base /path/to/genomes \
     --protocol renanoseq \
     --outdir results -resume
 ```
 
-`crick` is nf-core's institutional profile for NEMO: it sets the Slurm
-executor, Singularity and the resource limits. `nemo`
-(`conf/compute/nemo.config`) holds what is specific to this pipeline.
-`nextflow.config` is read automatically from beside `DupCaller.nf`, so no
-`-c` file is needed.
+`crick` is nf-core's institutional profile for NEMO
+([`conf/crick.config`](https://github.com/nf-core/configs/blob/master/conf/crick.config)),
+fetched at launch, so the launching node needs internet access: it sets
+the Slurm executor, Singularity with `/nemo` and `/flask` bound, and limits
+of 2 TB, 256 CPUs and 168 h, which replace `max_cpus`, `max_memory` and
+`max_time`. `nextflow.config` is read automatically from beside
+`DupCaller.nf`, so no `-c` file is needed.
 
 Without a matched normal, add `--tumor_only` and leave the normal columns
 out of the sample map. `DupCaller.py call` then runs without `-n` and with
@@ -88,7 +90,7 @@ again with other settings, without trimming and aligning again, point
 `--from_bams` at that folder:
 
 ```bash
-nextflow run nextflow/DupCaller.nf -profile crick,nemo \
+nextflow run nextflow/DupCaller.nf -profile crick \
     --sample_map sample.map --genome hg38 --genome_base /path/to/dupcaller_genomes \
     --from_bams results/bam --max_af 0.2 --outdir results_maf0.2
 ```
@@ -107,7 +109,7 @@ What DupCaller adds to a genome is built once, by `build_reference.nf`,
 into a folder of its own:
 
 ```bash
-nextflow run nextflow/build_reference.nf -profile crick,nemo \
+nextflow run nextflow/build_reference.nf -profile crick \
     --genome hg38 --genome_base /path/to/dupcaller_genomes
 ```
 
@@ -122,7 +124,7 @@ A file already in the folder is not built again, so a rerun after a
 failure picks up where it stopped. Every run then reads the genome with:
 
 ```bash
-nextflow run nextflow/DupCaller.nf -profile crick,nemo \
+nextflow run nextflow/DupCaller.nf -profile crick \
     --genome hg38 --genome_base /path/to/dupcaller_genomes ...
 ```
 

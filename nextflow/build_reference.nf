@@ -4,7 +4,7 @@
 // files into <genome_base>/<genome>/, reading the FASTA where conf/genomes.config says
 // it lives. A file already in that folder is not built again.
 //
-//   nextflow run nextflow/build_reference.nf -profile crick,nemo --genome hg38 --genome_base DIR
+//   nextflow run nextflow/build_reference.nf -profile crick --genome hg38 --genome_base DIR
 
 include { genomeSpec; indexPrefix; allExist; dupcallerIndexSuffixes; bwaMem2IndexSuffixes } from './genomes'
 include { FAIDX           } from './modules/local/faidx/main'

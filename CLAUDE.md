@@ -23,7 +23,6 @@ merging `main` into `crick` stays simple. The Crick-specific part is the Nextflo
 | `nextflow/modules/local/<name>/main.nf` | one process each, with its `container` and a `stub:` block |
 | `nextflow/nextflow.config` | every parameter default, the profiles and the manifest |
 | `nextflow/conf/base.config` | per-process CPUs, memory and time |
-| `nextflow/conf/compute/nemo.config` | NEMO settings on top of nf-core's `crick` profile |
 | `tests/unit/`, `tests/mock_pipeline/` | upstream's tests of the caller and of the whole pipeline |
 | `tests/nextflow/` | stub-run wiring and parameter tests |
 
@@ -37,7 +36,7 @@ just test-mock [profile]    # 11 real runs in containers; `docker,arm` on Apple 
 just compare-to <ref> [nxf] # every mock case at <ref> and here, every published file diffed
 ```
 
-Run the pipeline as `NXF_VER=26.04.6 nextflow run nextflow/DupCaller.nf -profile crick,nemo ...`.
+Run the pipeline as `NXF_VER=26.04.6 nextflow run nextflow/DupCaller.nf -profile crick ...`.
 `nextflow/README.md` is the user documentation.
 
 ## Rules for the pipeline
@@ -73,7 +72,8 @@ Run the pipeline as `NXF_VER=26.04.6 nextflow run nextflow/DupCaller.nf -profile
 
 - `conf/genomes.config` has no paths yet: the core Crick locations of hg38 and mm39 (FASTA,
   gnomAD AF-only VCF, NanoSeq masks) are to be filled in, then `build_reference.nf` run once and
-  `params.genome_base` set in `conf/compute/nemo.config` (pipelines-technology-ops#162).
+  `params.genome_base` defaulted in `nextflow.config` (pipelines-technology-ops#162). NEMO settings
+  come from nf-core's `crick` profile alone; this repo has no NEMO config of its own.
 - Work items live in `FrancisCrickInstitute/pipelines-technology-ops`, because issues are disabled
   on this fork: #157 for this restructure, #158 for deployment and the Airflow integration.
 - The DupCaller image is upstream's `ghcr.io/alexandrovlab/dupcaller`, which is correct while
