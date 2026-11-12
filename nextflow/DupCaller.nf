@@ -1,7 +1,6 @@
 #!/usr/bin/env nextflow
 
-include { INDEX_REFERENCE } from './modules/local/index_reference/main'
-include { BWA_MEM2_INDEX  } from './modules/local/bwa_mem2_index/main'
+include { genomeSpec; indexPrefix; dupcallerIndexSuffixes; bwaMem2IndexSuffixes } from './genomes'
 include { TRIM_BARCODES   } from './modules/local/trim_barcodes/main'
 include { BWA_MEM2_SORT   } from './modules/local/bwa_mem2_sort/main'
 include { MARK_DUPLICATES } from './modules/local/mark_duplicates/main'
@@ -9,11 +8,9 @@ include { CALL_VARIANTS   } from './modules/local/call_variants/main'
 include { ESTIMATE_BURDEN } from './modules/local/estimate_burden/main'
 
 // Typed so that a command-line value converts: from Nextflow 26.04 an untyped
-// `--skip_index false` binds the String "false", which is truthy. Every other
+// `--tumor_only false` binds the String "false", which is truthy. Every other
 // parameter is declared in nextflow.config.
 params {
-    skip_index: Boolean         = true
-    skip_bwa_index: Boolean     = true
     tumor_only: Boolean         = false
     estimate_dilute: Boolean    = false
     keep_trimmed_fastq: Boolean = false
@@ -33,21 +30,6 @@ def protocols() {
 
 def chromosomes(n) { (1..n).collect { "chr${it}" }.join(' ') + ' chrX' }
 
-// File names bin/fetch_genome.sh leaves in <genome_base>/<genome>/. The
-// mm39 germline VCF is per mouse strain, so there is none without genome_strain.
-def genomes() {
-    [
-        hg38: [fasta:        'GRCh38.d1.vd1.fa',
-               germline_vcf: 'af-only-gnomad.hg38.vcf.gz',
-               noise_mask:   ['SNP_GRCh38.wgns.bed.gz', 'NOISE_GRCh38.wgns.bed.gz'],
-               regions:      chromosomes(22)],
-        mm39: [fasta:        'mm39.fa',
-               germline_vcf: params.genome_strain ? "mgp.${params.genome_strain}_reh.vcf.gz" : null,
-               noise_mask:   ['NOISE.mm39.bed.gz'],
-               regions:      chromosomes(19)],
-    ]
-}
-
 // Checks the parameters, then resolves those that genome, protocol and
 // tumor_only decide. Processes take the result as inputs, never by calling a
 // function: -resume's task hash does not see a function's return value.
@@ -55,22 +37,12 @@ def resolveSettings() {
     if (!params.sample_map) error "params.sample_map is required"
 
     def genome = null
-    def genome_dir = null
     if (params.genome) {
-        genome = genomes()[params.genome]
-        if (!genome)
-            error "params.genome = ${params.genome}: must be one of ${genomes().keySet().join(', ')}"
         if (params.reference)
             error "params.genome and params.reference are both set: genome supplies the reference, so leave reference unset"
-        if (!params.genome_base)
-            error "params.genome needs params.genome_base, the folder bin/fetch_genome.sh downloaded ${params.genome} into"
-        if (params.genome_strain && params.genome != 'mm39')
-            error "params.genome_strain applies only to genome = mm39"
-        if (params.genome == 'mm39' && !params.genome_strain && !params.germline_vcf)
-            log.warn "genome = mm39 without genome_strain or germline_vcf: calling runs without a germline VCF (-g)."
-        genome_dir = "${params.genome_base}/${params.genome}"
+        genome = genomeSpec()
     } else if (!params.reference) {
-        error "params.reference is required (or set params.genome to hg38 or mm39)"
+        error "params.reference is required (or set params.genome, e.g. hg38)"
     }
 
     def protocol = null
@@ -94,14 +66,12 @@ def resolveSettings() {
     if (max_af != params.max_af)
         log.info "tumor_only with max_af = ${params.max_af}: DupCaller.py call runs with -maf ${max_af}, so variants above that allele fraction (mostly germline) are not called."
 
-    def masks = params.noise_mask
-        ? (params.noise_mask instanceof List ? params.noise_mask : [params.noise_mask])
-        : (genome ? genome.noise_mask.collect { "${genome_dir}/${it}" } : [])
+    def masks = params.noise_mask ?: genome?.noise_mask ?: []
 
     [
-        reference:       genome ? "${genome_dir}/${genome.fasta}" : params.reference,
-        germline_vcf:    params.germline_vcf ?: (genome?.germline_vcf ? "${genome_dir}/${genome.germline_vcf}" : null),
-        noise_mask:      masks,
+        reference:       genome ? genome.fasta : params.reference,
+        germline_vcf:    params.germline_vcf ?: genome?.germline_vcf,
+        noise_mask:      masks instanceof List ? masks : [masks],
         regions:         params.regions ?: genome?.regions ?: chromosomes(22),
         barcode_pattern: barcode_pattern,
         trim_template:   protocol ? protocol.trim_template : params.trim_template,
@@ -122,17 +92,22 @@ def indexed(p, param_name) {
 workflow {
     def s     = resolveSettings()
     def fasta = file(s.reference, checkIfExists: true)
-    def fai   = file("${s.reference}.fai", checkIfExists: true)
 
-    // Indexes are read from next to the reference unless the matching skip_* is false.
-    def bwa_index_ch = params.skip_bwa_index
-        ? channel.value(['0123', 'amb', 'ann', 'bwt.2bit.64', 'pac'].collect { file("${s.reference}.${it}", checkIfExists: true) })
-        : BWA_MEM2_INDEX(fasta)
-    if (!params.skip_index && !params.repeat_tsv)
-        error "params.repeat_tsv is required when skip_index = false"
-    def dc_index_ch = params.skip_index
-        ? channel.value([fai] + ['ref', 'tn', 'hp', 'str', 'dbs'].collect { file("${s.reference}.${it}.h5", checkIfExists: true) })
-        : INDEX_REFERENCE(fasta, file(params.repeat_tsv, checkIfExists: true)).map { h5 -> [fai] + h5 }
+    // With --genome the indexes are in <genome_base>/<genome>/, named after the FASTA
+    // (build_reference.nf), and the .fai is the FASTA's own if it has one. With
+    // --reference everything sits beside the FASTA. Staged together, so DupCaller and
+    // bwa-mem2 find them beside the FASTA's name either way.
+    def prefix  = params.genome ? indexPrefix(fasta) : s.reference
+    def fai     = file("${s.reference}.fai").exists() ? "${s.reference}.fai" : "${prefix}.fai"
+    def wanted  = [fai] + (dupcallerIndexSuffixes() + bwaMem2IndexSuffixes()).collect { "${prefix}${it}" }
+    def missing = wanted.findAll { !file(it).exists() }
+    if (missing)
+        error "missing index files for ${fasta.name}: ${missing.join(', ')}. " +
+              (params.genome
+                  ? "Build them once with: nextflow run nextflow/build_reference.nf --genome ${params.genome} --genome_base ${params.genome_base}"
+                  : "Build them beside the FASTA (samtools faidx, DupCaller.py index, bwa-mem2 index), or use --genome")
+    def bwa_index = bwaMem2IndexSuffixes().collect { file("${prefix}${it}") }
+    def dc_index  = [file(fai)] + dupcallerIndexSuffixes().collect { file("${prefix}${it}") }
 
     // (sample_id, type, fq1, fq2). The normal_fastq_1/2 columns are read
     // only when each sample has its own normal to align.
@@ -152,7 +127,7 @@ workflow {
 
     def barcode_list = params.barcode_list ? file(params.barcode_list, checkIfExists: true) : []
     def trimmed_ch   = TRIM_BARCODES(reads_ch, barcode_list, s.barcode_pattern)
-    def aligned_ch   = BWA_MEM2_SORT(trimmed_ch, fasta, bwa_index_ch)
+    def aligned_ch   = BWA_MEM2_SORT(trimmed_ch, fasta, bwa_index)
     def markdup_ch   = MARK_DUPLICATES(aligned_ch)
 
     def tumor_ch = markdup_ch
@@ -172,7 +147,7 @@ workflow {
     def calls_ch = CALL_VARIANTS(
         call_input_ch,
         fasta,
-        dc_index_ch,
+        dc_index,
         indexed(s.germline_vcf, 'germline_vcf'),
         s.noise_mask.collectMany { indexed(it, 'noise_mask') },
         s.noise_mask.collect { file(it).name },
@@ -181,5 +156,5 @@ workflow {
         [regions: s.regions, max_af: s.max_af, trim_template: s.trim_template, trim_read: s.trim_read],
     )
 
-    ESTIMATE_BURDEN(calls_ch, fasta, dc_index_ch, indexed(params.gene_bed, 'gene_bed'), s.regions)
+    ESTIMATE_BURDEN(calls_ch, fasta, dc_index, indexed(params.gene_bed, 'gene_bed'), s.regions)
 }

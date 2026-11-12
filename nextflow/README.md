@@ -12,16 +12,18 @@ main README's [Pipeline](../README.md#pipeline) section.
 | Mark duplicates | `MARK_DUPLICATES` | GATK 4.3.0.0 MarkDuplicates |
 | Call mutations | `CALL_VARIANTS` | `DupCaller.py call` |
 | Estimate burden | `ESTIMATE_BURDEN` | `DupCaller.py estimate` |
-| Index the reference (optional) | `INDEX_REFERENCE`, `BWA_MEM2_INDEX` | `DupCaller.py index`, `bwa-mem2 index` |
 
 Each process is a module under `modules/local/` and names its own
 container. `DupCaller.nf` checks the parameters and connects the modules.
+`build_reference.nf` is a separate workflow, run once per genome, that
+builds the indexes `DupCaller.nf` reads (see
+[Reference genomes](#reference-genomes)).
 
 ## Requirements
 
 - Nextflow 26.04.0 or later (`manifest.nextflowVersion`; CI runs 26.04.6).
 - Singularity or Docker. Every process runs in a container.
-- A reference with its indexes (see [Reference genomes](#reference-genomes)).
+- A genome built once with `build_reference.nf`, or your own reference with its indexes (see [Reference genomes](#reference-genomes)).
 
 ## Running on NEMO
 
@@ -65,37 +67,62 @@ align, that is when neither `tumor_only` nor `normal_bam` is set.
 
 ## Reference genomes
 
-The pipeline never downloads a reference. It reads one of:
-
-- `--genome hg38` or `--genome mm39` with `--genome_base DIR`: the files in
-  `DIR/<genome>/`, including that genome's germline VCF and noise masks.
-  A `germline_vcf` or `noise_mask` set explicitly replaces the genome's.
-  For mm39, `--genome_strain STRAIN` (for example `C57BL_6NJ`) selects the
-  germline VCF; without it calling runs with no germline VCF.
-- `--reference ref.fa`: your own FASTA.
-
-In both cases the FASTA has next to it its samtools index (`.fai`), its
-bwa-mem2 index (`.0123`, `.amb`, `.ann`, `.bwt.2bit.64`, `.pac`) and its
-DupCaller index (`.ref.h5`, `.tn.h5`, `.hp.h5`, `.str.h5`, `.dbs.h5`).
-`--skip_bwa_index false` and `--skip_index false` (with `--repeat_tsv`)
-build the last two inside the run instead; `bwa-mem2 index` needs about 28
-bytes of RAM per reference base, about 90 GB for GRCh38.
-
-`bin/fetch_genome.sh` fills a genome folder once, from a node with internet
-access:
+A genome's core files stay where they are at the Crick and are never
+copied. `conf/genomes.config`, laid out like nf-core's `igenomes.config`,
+gives each genome's FASTA, germline VCF, noise masks and calling regions.
+What DupCaller adds to a genome is built once, by `build_reference.nf`,
+into a folder of its own:
 
 ```bash
-nextflow/bin/fetch_genome.sh hg38 /path/to/genomes
-nextflow/bin/fetch_genome.sh mm39 /path/to/genomes C57BL_6NJ
+nextflow run nextflow/build_reference.nf -profile crick,nemo \
+    --genome hg38 --genome_base /path/to/dupcaller_genomes
 ```
 
-It downloads the files listed in `assets/premade/<genome>.tsv` (GDC, GATK,
-UCSC and Google Drive), checks each against the md5 in that file where one
-is listed, unpacks the FASTA and runs `samtools faidx` and `bwa-mem2
-index`. It needs `curl`, `md5sum`, `samtools`, `bwa-mem2` and `gdown` on
-`PATH`, and about 50 GB of disk and 90 GB of RAM for hg38. A rerun skips
-files that are already present. Google Drive can refuse a file for up to a
-day once its download quota is reached; rerun later.
+| Built into `<genome_base>/<genome>/` | Step | Notes |
+|---|---|---|
+| `<fasta>.repeats.tsv` | `REPEATS`: `PERF -m 2 -M 10 -u 2` | Skipped when the genome entry gives `repeat_tsv` |
+| `<fasta>.{ref,tn,hp,str,dbs}.h5` | `INDEX_REFERENCE`: `DupCaller.py index` | The DupCaller index; about 18 GB for GRCh38 |
+| `<fasta>.{0123,amb,ann,bwt.2bit.64,pac}` | `BWA_MEM2_INDEX`: `bwa-mem2 index` | About 28 bytes of RAM per base, about 90 GB for GRCh38 |
+| `<fasta>.fai` | `FAIDX` | Only when the FASTA has no `.fai` beside it |
+
+A file already in the folder is not built again, so a rerun after a
+failure picks up where it stopped. Every run then reads the genome with:
+
+```bash
+nextflow run nextflow/DupCaller.nf -profile crick,nemo \
+    --genome hg38 --genome_base /path/to/dupcaller_genomes ...
+```
+
+The FASTA, germline VCF and masks are read from their Crick locations and
+the indexes from the folder; Nextflow stages them side by side, which is
+where DupCaller and bwa-mem2 look. A `germline_vcf`, `noise_mask` or
+`regions` given on the command line replaces the genome's. A run whose
+genome has not been built stops at launch and prints the
+`build_reference.nf` command.
+
+Another genome, or the same genome from other files, is one more block in
+`conf/genomes.config` or in a `-c` file:
+
+```groovy
+params {
+    genomes {
+        hg38_noalt {
+            fasta        = '/path/to/GRCh38_no_alt.fa'
+            germline_vcf = '/path/to/af-only-gnomad.hg38.vcf.gz'
+            noise_mask   = ['/path/to/NOISE_GRCh38.wgns.bed.gz']
+            regions      = 'chr1 chr2 ... chrX'
+        }
+    }
+}
+```
+
+An index built by another DupCaller version may not be read: DupCaller
+1.2.12 refuses one without its current index version, which an index
+from 1.1.x lacks. Build the folder with the DupCaller image the pipeline
+runs.
+
+Without `--genome`, `--reference ref.fa` reads your own FASTA with its
+`.fai`, bwa-mem2 index and DupCaller index all beside it.
 
 ## Protocol settings
 
@@ -118,10 +145,9 @@ so check it against your library.
 ## Parameters
 
 `nextflow.config` lists every parameter with its default and a comment.
-The five booleans (`skip_index`, `skip_bwa_index`, `tumor_only`,
-`estimate_dilute`, `keep_trimmed_fastq`) are declared with a type in
-`DupCaller.nf`, so `--skip_index false` on the command line is read as a
-boolean. A parameter that is not declared is refused at launch, which also
+The three booleans (`tumor_only`, `estimate_dilute`,
+`keep_trimmed_fastq`) are declared with a type in `DupCaller.nf`, so
+`--tumor_only false` on the command line is read as a boolean. A parameter that is not declared is refused at launch, which also
 catches a misspelt name.
 
 Every optional VCF or BED (`germline_vcf`, `noise_mask`, `target_bed`,

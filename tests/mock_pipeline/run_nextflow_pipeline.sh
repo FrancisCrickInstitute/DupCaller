@@ -73,8 +73,7 @@ cp "$DATA_DIR/mock_2.fastq" "$OUTDIR/normal_2.fastq"
 cd "$OUTDIR"
 OUTDIR="$(pwd)"
 
-echo "[setup] faidx + optional test resources (bwa-mem2/DupCaller indexes are built by the pipeline)"
-"$PYTHON" -c "import pysam; pysam.faidx('reference.fa')"
+echo "[setup] optional test resources"
 "$PYTHON" "${SCRIPT_DIR}/make_test_resources.py" resources reference.fa
 
 printf 'sample_id\ttumor_fastq_1\ttumor_fastq_2\tnormal_fastq_1\tnormal_fastq_2\nmock\ttumor_1.fastq\ttumor_2.fastq\tnormal_1.fastq\tnormal_2.fastq\n' > sample.map
@@ -85,6 +84,14 @@ printf 'sample_id\ttumor_fastq_1\ttumor_fastq_2\tnormal_fastq_1\tnormal_fastq_2\
 
 R="${OUTDIR}/resources"
 : > task_dirs.txt
+echo "[build] DupCaller and bwa-mem2 indexes of the mock genome (build_reference.nf)"
+"$NEXTFLOW" run "${REPO_ROOT}/nextflow/build_reference.nf" \
+    -c "${SCRIPT_DIR}/nextflow_test.config" \
+    -profile "${PROFILE}" \
+    -w work \
+    ${IMAGE_ARGS[@]+"${IMAGE_ARGS[@]}"} \
+    -resume
+"$NEXTFLOW" log last -f workdir >> task_dirs.txt
 for case in "${CASES[@]}"; do
     case "$case" in
         default)    extra='' ;;

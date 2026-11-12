@@ -44,7 +44,7 @@ nextflow run nextflow/DupCaller.nf \
     --outdir results -resume
 ```
 
-- `--genome hg38` or `mm39` reads the reference FASTA, its indexes, the germline VCF and the noise masks listed in [Resources](#resources) from `--genome_base`. The pipeline does not download them; `nextflow/bin/fetch_genome.sh` fills that folder once.
+- `--genome hg38` or `mm39` reads the genome's FASTA, germline VCF and noise masks where they live at the Crick (`nextflow/conf/genomes.config`), and DupCaller's indexes from `--genome_base`. Build that folder once per genome with `nextflow run nextflow/build_reference.nf -profile crick,nemo --genome hg38 --genome_base /path/to/genomes` ([Reference genomes](nextflow/README.md#reference-genomes)).
 - `--protocol` is your library protocol: `renanoseq`, `nanoseqv2`, `udseq` or `metacs` (see [Protocol Settings](#protocol-settings)).
 - <a id="quick-start-without-a-matched-normal"></a>Without a matched normal, add `--tumor_only` and use `nextflow/examples/sample_tumor_only.map`.
 - Results go to `results/<sample_id>/`. We do not recommend calling samples at or below 100x duplex coverage without a matched normal.

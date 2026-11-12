@@ -17,11 +17,13 @@ merging `main` into `crick` stays simple. The Crick-specific part is the Nextflo
 |---|---|
 | `src/DupCaller.py`, `src/DupCaller_sub/` | the caller: `trim`, `index`, `call`, `estimate`, `learn`, `summarize` |
 | `nextflow/DupCaller.nf` | parameter checks and the workflow; no process is defined here |
+| `nextflow/build_reference.nf` | one-off per genome: builds the indexes `DupCaller.nf --genome` reads |
+| `nextflow/conf/genomes.config` | each genome's core Crick files (FASTA, germline VCF, masks, regions), read in place |
+| `nextflow/genomes.nf` | genome lookup and index naming shared by both workflows |
 | `nextflow/modules/local/<name>/main.nf` | one process each, with its `container` and a `stub:` block |
 | `nextflow/nextflow.config` | every parameter default, the profiles and the manifest |
 | `nextflow/conf/base.config` | per-process CPUs, memory and time |
 | `nextflow/conf/compute/nemo.config` | NEMO settings on top of nf-core's `crick` profile |
-| `nextflow/bin/fetch_genome.sh` | one-off download of hg38 or mm39 into a genome folder |
 | `tests/unit/`, `tests/mock_pipeline/` | upstream's tests of the caller and of the whole pipeline |
 | `tests/nextflow/` | stub-run wiring and parameter tests |
 
@@ -59,17 +61,19 @@ Run the pipeline as `NXF_VER=26.04.6 nextflow run nextflow/DupCaller.nf -profile
 - **A stub run checks wiring only, and the mock test compares only two cases with expected
   outputs.** Before calling a pipeline change output-neutral, run `just compare-to <old-ref>`,
   which diffs every published file of all 11 cases (`.claude/knowledge/compare-outputs-old-vs-new.md`).
-- **The pipeline does not download references.** `--genome` reads `<genome_base>/<genome>/`, and
-  `genomes()` in `DupCaller.nf` must name the files `fetch_genome.sh` leaves there.
+- **Core genome files are never copied.** `conf/genomes.config` points at them where they live;
+  `build_reference.nf` writes only derived files (indexes, the repeat table, a missing `.fai`) into
+  `<genome_base>/<genome>/`, named after the FASTA. `DupCaller.nf` builds no index: a genome
+  without its folder stops at launch with the build command.
 - **The DupCaller version is written three times:** `__version__` in `src/DupCaller_sub/__init__.py`,
   and the `dupcaller_container` tag and `manifest.version` in `nextflow/nextflow.config`.
   `release.yml` fails the release when they disagree.
 
 ## Not yet settled
 
-- `params.genome_base` has no default yet. hg38 and mm39 are already on NEMO; pointing
-  `conf/compute/nemo.config` at them, after checking their file names match `genomes()`, is
-  pipelines-technology-ops#162.
+- `conf/genomes.config` has no paths yet: the core Crick locations of hg38 and mm39 (FASTA,
+  gnomAD AF-only VCF, NanoSeq masks) are to be filled in, then `build_reference.nf` run once and
+  `params.genome_base` set in `conf/compute/nemo.config` (pipelines-technology-ops#162).
 - Work items live in `FrancisCrickInstitute/pipelines-technology-ops`, because issues are disabled
   on this fork: #157 for this restructure, #158 for deployment and the Airflow integration.
 - The DupCaller image is upstream's `ghcr.io/alexandrovlab/dupcaller`, which is correct while

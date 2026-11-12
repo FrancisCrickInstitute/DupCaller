@@ -14,7 +14,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 WORKDIR /app
 COPY . .
 
-# gdown is the Google Drive downloader nextflow/bin/fetch_genome.sh calls.
+# gdown downloads Google Drive files, such as upstream's pre-built indexes.
 RUN pip install --no-cache-dir . gdown==6.1.0
 
 # Links the GHCR package to its source repository.

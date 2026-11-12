@@ -15,7 +15,9 @@ from pathlib import Path
 
 import pytest
 
-PIPELINE = Path(__file__).resolve().parents[2] / "nextflow" / "DupCaller.nf"
+NEXTFLOW_DIR = Path(__file__).resolve().parents[2] / "nextflow"
+PIPELINE = NEXTFLOW_DIR / "DupCaller.nf"
+BUILD = NEXTFLOW_DIR / "build_reference.nf"
 # NXF_OFFLINE skips the remote nf-core include in nextflow.config.
 ENV = {"NXF_ANSI_LOG": "false", "NXF_OFFLINE": "true", "NXF_VER": os.environ.get("NXF_VER", "26.04.6")}
 BWA = ["0123", "amb", "ann", "bwt.2bit.64", "pac"]
@@ -39,16 +41,20 @@ def run(tmp_path):
     touch(tmp_path, "ref.fa", "ref.fa.fai", *(f"ref.fa.{s}" for s in BWA + H5))
     touch(tmp_path, "t1.fq", "t2.fq", "n1.fq", "n2.fq", "normal.bam", "normal.bam.bai", "repeats.tsv", "barcodes.txt")
     touch(tmp_path, "mask.bed.gz", "mask.bed.gz.tbi", "plain.bed")
-    hg38 = ["GRCh38.d1.vd1.fa", "af-only-gnomad.hg38.vcf.gz", "SNP_GRCh38.wgns.bed.gz", "NOISE_GRCh38.wgns.bed.gz"]
-    touch(tmp_path / "genomes" / "hg38", "GRCh38.d1.vd1.fa.fai", *hg38, *(f"{hg38[0]}.{s}" for s in BWA + H5),
-          *(f"{f}.tbi" for f in hg38[1:]))
+    # A genome entry like conf/genomes.config's: core files in one folder, indexes built elsewhere.
+    touch(tmp_path / "core", "toy.fa", "germline.vcf.gz", "germline.vcf.gz.tbi", "noise.bed.gz", "noise.bed.gz.tbi")
+    core = tmp_path / "core"
+    (tmp_path / "toy.config").write_text(
+        f'params {{ genomes {{ toy {{ fasta = "{core}/toy.fa"; germline_vcf = "{core}/germline.vcf.gz"; '
+        f'noise_mask = ["{core}/noise.bed.gz"]; regions = "chr1" }} }} }}\n')
     (tmp_path / "sample.map").write_text(
         "sample_id\ttumor_fastq_1\ttumor_fastq_2\tnormal_fastq_1\tnormal_fastq_2\nS1\tt1.fq\tt2.fq\tn1.fq\tn2.fq\n")
     (tmp_path / "tumor.map").write_text("sample_id\ttumor_fastq_1\ttumor_fastq_2\nS1\tt1.fq\tt2.fq\n")
 
-    def run(*args):
+    def run(*args, script=PIPELINE):
         result = subprocess.run(
-            ["nextflow", "run", str(PIPELINE), "-stub-run", "--max_cpus", "1", "--max_memory", "2.GB", *args],
+            ["nextflow", "run", str(script), "-stub-run", "-c", "toy.config",
+             "--max_cpus", "1", "--max_memory", "2.GB", *args],
             cwd=tmp_path, capture_output=True, text=True, timeout=300, env={**os.environ, **ENV})
         output = result.stdout + result.stderr
         return result.returncode, output, Counter(re.findall(r"\[PROCESS [^\]]+\] (\w+)", output))
@@ -58,6 +64,7 @@ def run(tmp_path):
 
 REF = ["--sample_map", "sample.map", "--reference", "ref.fa"]
 TUMOR_REF = ["--sample_map", "tumor.map", "--reference", "ref.fa"]
+TOY = ["--genome", "toy", "--genome_base", "genomes"]
 
 
 @pytest.mark.parametrize("args, expected", [
@@ -65,11 +72,10 @@ TUMOR_REF = ["--sample_map", "tumor.map", "--reference", "ref.fa"]
     ([*REF, "--noise_mask", "mask.bed.gz", "--gene_bed", "mask.bed.gz"], FULL),
     ([*TUMOR_REF, "--tumor_only"], TUMOR),
     ([*TUMOR_REF, "--normal_bam", "normal.bam"], TUMOR),
-    ([*REF, "--skip_index", "false", "--skip_bwa_index", "false", "--repeat_tsv", "repeats.tsv"],
-     {**FULL, "INDEX_REFERENCE": 1, "BWA_MEM2_INDEX": 1}),
-    (["--sample_map", "sample.map", "--genome", "hg38", "--genome_base", "genomes"], FULL),
+    # A command-line `false` must arrive as a boolean, not the truthy string "false".
+    ([*TUMOR_REF, "--normal_bam", "normal.bam", "--tumor_only", "false"], TUMOR),
     ([*REF, "--protocol", "META-CS", "--barcode_list", "barcodes.txt"], FULL),
-], ids=["matched_normal", "optional_resources", "tumor_only", "shared_normal_bam", "build_indexes", "genome", "metacs"])
+], ids=["matched_normal", "optional_resources", "tumor_only", "shared_normal_bam", "boolean_false", "metacs"])
 def test_mode_runs_its_processes(run, args, expected):
     code, output, ran = run(*args)
     assert code == 0, output
@@ -80,21 +86,40 @@ def test_mode_runs_its_processes(run, args, expected):
     (["--reference", "ref.fa"], "params.sample_map is required"),
     (["--sample_map", "sample.map"], "params.reference is required"),
     ([*REF, "--genome", "hg38", "--genome_base", "genomes"], "params.genome and params.reference are both set"),
-    (["--sample_map", "sample.map", "--genome", "hg38"], "params.genome needs params.genome_base"),
-    (["--sample_map", "sample.map", "--genome", "hg19", "--genome_base", "genomes"], "must be one of hg38, mm39"),
+    (["--sample_map", "sample.map", "--genome", "toy"], "params.genome needs params.genome_base"),
+    (["--sample_map", "sample.map", "--genome", "hg19", "--genome_base", "genomes"], "not in params.genomes"),
+    (["--sample_map", "sample.map", "--genome", "hg38", "--genome_base", "genomes"], "params.genomes.hg38.fasta is not set"),
+    (["--sample_map", "sample.map", *TOY], "build_reference.nf --genome toy"),
     ([*REF, "--protocol", "nope"], "must be one of renanoseq"),
     ([*REF, "--protocol", "metacs"], "set barcode_list"),
     ([*REF, "--barcode_list", "barcodes.txt"], "has no B"),
     ([*REF, "--tumor_only", "--normal_bam", "normal.bam"], "tumor_only and params.normal_bam are both set"),
-    # Also proves a command-line `false` arrives as a boolean, not the truthy string "false".
-    ([*REF, "--skip_index", "false"], "params.repeat_tsv is required"),
     ([*REF, "--noise_mask", "plain.bed"], "must be bgzip-compressed"),
     ([*REF, "--premade", "hg38"], "premade"),
+    ([*REF, "--skip_index", "false"], "skip_index"),
 ], ids=["no_sample_map", "no_reference", "genome_and_reference", "genome_without_base", "unknown_genome",
-        "unknown_protocol", "metacs_without_list", "list_without_B", "tumor_only_and_normal_bam",
-        "index_without_repeats", "unindexed_mask", "removed_premade_param"])
+        "genome_without_fasta", "genome_not_built", "unknown_protocol", "metacs_without_list", "list_without_B",
+        "tumor_only_and_normal_bam", "unindexed_mask", "removed_premade_param", "removed_skip_index_param"])
 def test_bad_parameters_are_refused(run, args, message):
     code, output, ran = run(*args)
     assert code != 0, output
     assert message in output
     assert not ran
+
+
+def test_build_reference_writes_only_derived_files_then_the_genome_runs(run, tmp_path):
+    core_before = sorted(p.name for p in (tmp_path / "core").iterdir())
+    code, output, ran = run(*TOY, script=BUILD)
+    assert code == 0, output
+    assert ran == {"FAIDX": 1, "REPEATS": 1, "INDEX_REFERENCE": 1, "BWA_MEM2_INDEX": 1}
+    built = sorted(p.name for p in (tmp_path / "genomes" / "toy").iterdir())
+    assert built == sorted(["toy.fa.fai", "toy.fa.repeats.tsv", *(f"toy.fa.{s}" for s in BWA + H5)])
+    assert sorted(p.name for p in (tmp_path / "core").iterdir()) == core_before
+
+    code, output, ran = run(*TOY, script=BUILD)
+    assert code == 0, output
+    assert not ran, "a second build must find everything already built"
+
+    code, output, ran = run("--sample_map", "sample.map", *TOY)
+    assert code == 0, output
+    assert ran == FULL

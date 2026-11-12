@@ -1,5 +1,7 @@
 process INDEX_REFERENCE {
     container "${params.dupcaller_container}"
+    // Used only by build_reference.nf, which keeps every derived file with the genome.
+    publishDir "${params.genome_base}/${params.genome}", mode: 'copy'
 
     input:
     path reference

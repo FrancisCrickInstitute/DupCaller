@@ -6,10 +6,10 @@ All notable changes to DupCaller are recorded here, most recent first.
 
 ### Changed (Crick fork)
 - Nextflow: `DupCaller.nf` is split into one module per process under `nextflow/modules/local/`, each naming its container and carrying a `stub:` block. The commands each process runs are unchanged.
-- Nextflow: requires 26.04.0 or later. The boolean parameters are typed, so `--skip_index false` on the command line is read as a boolean, and an undeclared parameter is refused at launch.
+- Nextflow: requires 26.04.0 or later. The boolean parameters are typed, so `--tumor_only false` on the command line is read as a boolean, and an undeclared parameter is refused at launch.
 - Nextflow: `pipeline.config` is removed; `nextflow.config` holds every default and is read automatically, so no `-c` file is needed. Resource caps use `resourceLimits`; `threads` defaults to 16.
 - Nextflow: `-profile crick,nemo` (nf-core's Crick profile plus `conf/compute/nemo.config`) replaces the `slurm`, `lsf`, `sge`, `pbs`, `pbspro`, `awsbatch` and `local` profiles and their `"PLEASE CHANGE"` parameters. `arm` is added for Docker on Apple Silicon.
-- Nextflow: the pipeline no longer downloads a reference. `premade`, `premade_dir` and `premade_strain` become `genome`, `genome_base` and `genome_strain`, which read `<genome_base>/<genome>/`; `nextflow/bin/fetch_genome.sh` fills that folder once from the same manifests, with the same md5 checks. An existing `premade_dir` works as `genome_base`. `regions` defaults to the genome's autosomes and chrX.
+- Nextflow: references are read where they live and indexed once. `conf/genomes.config`, laid out like nf-core's `igenomes.config`, gives each genome's FASTA, germline VCF, noise masks and regions; `build_reference.nf --genome <g> --genome_base <dir>` builds the PERF repeat table, the DupCaller index, the bwa-mem2 index and a missing `.fai` into `<dir>/<g>/`, copying no core file; `DupCaller.nf --genome <g> --genome_base <dir>` reads both. `DupCaller.nf` no longer builds indexes or downloads references: `premade`, `premade_dir`, `premade_strain`, `skip_index`, `skip_bwa_index` and `repeat_tsv` are removed, with `assets/premade/` and the download step. `regions` defaults to the genome's own.
 - Nextflow: the empty `assets/NO_*` placeholder files are removed; an absent optional input is an empty list.
 
 ### Removed (Crick fork)
