@@ -168,14 +168,13 @@ Without `--genome`, `--reference ref.fa` reads your own FASTA with its
 |---|---|---|---|---|
 | RE-NanoSeq | `renanoseq` | `NNNXXXX` | 7 | 7 |
 | NanoSeq v2 | `nanoseqv2` | `NNNXX` | 7 | 7 |
-| UDSeq | `udseq` | `NNNNNNNNXXXXXXX` | 15 | 8 |
+| UDSeq | `udseq` | `NNNNNNNN` | 15 | 8 |
 | META-CS | `metacs` | `B` then 19 `X` (Tn5 barcode from `barcode_list`, then the 19 nt ME) | 7 | 7 |
 
-The UDSeq pattern is the Crick lab's (an 8-base barcode, then 7 skipped
-bases), not upstream's `NNNNNNNN`; the main README's
-[Protocol Settings](../README.md#protocol-settings) table is upstream's.
-The lab's earlier UDSeq runs used this pattern with end trimming of 7 and 7;
-UDSeq libraries need 15 and 8, which `udseq` sets.
+These are upstream's settings, as in the main README's
+[Protocol Settings](../README.md#protocol-settings) table. The lab's earlier
+UDSeq runs used `NNNNNNNNXXXXXXX` with end trimming of 7 and 7, so their
+duplex families and calls differ from `udseq`'s.
 Names are matched case-insensitively, ignoring `-` and `_`. A pattern with
 `B` needs `--barcode_list`, the allowed barcodes one per line. Without
 `protocol`, the three parameters are used as set (defaults `NNNXXXX`, 7
