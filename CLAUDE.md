@@ -1,5 +1,8 @@
 # DupCaller (Crick fork) — repository guidance
 
+Repo-specific traps and patterns are in `.claude/knowledge/`: read `INDEX.md` before changing the
+pipeline.
+
 A fork of [AlexandrovLab/DupCaller](https://github.com/AlexandrovLab/DupCaller). `main` tracks
 upstream; `crick` is the base branch here, so branch from it and open pull requests against it.
 
@@ -52,8 +55,9 @@ Run the pipeline as `NXF_VER=26.04.6 nextflow run nextflow/DupCaller.nf -profile
   set `cache 'lenient'`. Keep both together when editing either module.
 - **Every process has a `stub:` block and a `script:` block.** After adding a process or a run
   mode, add a row to `tests/nextflow/test_wiring.py`.
-- **A stub run checks wiring only.** A change to a `script:` block is verified by `just test-mock`,
-  which compares the default case with `tests/mock_pipeline/expected_matched_normal/`.
+- **A stub run checks wiring only, and the mock test compares only two cases with expected
+  outputs.** Before calling a pipeline change output-neutral, run the old and new pipelines on all
+  11 mock cases and diff every published file (`.claude/knowledge/compare-outputs-old-vs-new.md`).
 - **The pipeline does not download references.** `--genome` reads `<genome_base>/<genome>/`, and
   `genomes()` in `DupCaller.nf` must name the files `fetch_genome.sh` leaves there.
 - **The DupCaller version is written three times:** `__version__` in `src/DupCaller_sub/__init__.py`,

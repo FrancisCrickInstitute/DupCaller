@@ -28,7 +28,8 @@ wheels/
 MANIFEST
 
 # Claude-specific files
-.claude/
+.claude/*
+!.claude/knowledge/
 
 # Nextflow run state
 .nextflow/
