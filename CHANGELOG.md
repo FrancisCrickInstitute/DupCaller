@@ -4,6 +4,26 @@ All notable changes to DupCaller are recorded here, most recent first.
 
 ## [Unreleased]
 
+### Changed (Crick fork)
+- Nextflow: `DupCaller.nf` is split into one module per process under `nextflow/modules/local/`, each naming its container and carrying a `stub:` block. The commands each process runs are unchanged.
+- Nextflow: requires 26.04.0 or later. The boolean parameters are typed, so `--tumor_only false` on the command line is read as a boolean, and an undeclared parameter is refused at launch.
+- Nextflow: `pipeline.config` is removed; `nextflow.config` holds every default and is read automatically, so no `-c` file is needed. Resource caps use `resourceLimits`; `threads` defaults to 16.
+- Nextflow: `-profile crick` (nf-core's Crick profile, fetched at launch) replaces the `slurm`, `lsf`, `sge`, `pbs`, `pbspro`, `awsbatch` and `local` profiles and their `"PLEASE CHANGE"` parameters. `arm` is added for Docker on Apple Silicon.
+- Nextflow: references are read where they live and indexed once. `conf/genomes.config`, laid out like nf-core's `igenomes.config`, gives each genome's FASTA, germline VCF, noise masks and regions; `build_reference.nf --genome <g> --genome_base <dir>` builds the PERF repeat table, the DupCaller index, the bwa-mem2 index and a missing `.fai` into `<dir>/<g>/`, copying no core file; `DupCaller.nf --genome <g> --genome_base <dir>` reads both. `DupCaller.nf` no longer builds indexes or downloads references: `premade`, `premade_dir`, `premade_strain`, `skip_index`, `skip_bwa_index` and `repeat_tsv` are removed, with `assets/premade/` and the download step. `regions` defaults to the genome's own.
+- Nextflow: the empty `assets/NO_*` placeholder files are removed; an absent optional input is an empty list.
+- Nextflow: `--protocol udseq` uses the Crick lab's pattern `NNNNNNNNXXXXXXX` (8-base barcode, 7 skipped bases) instead of upstream's `NNNNNNNN`; trimming stays 15 and 8.
+- Nextflow: hg38 calls chr1 to chr22, chrX and chrY (upstream's default leaves out chrY), as do runs with `--reference` and no `regions`.
+
+### Removed (Crick fork)
+- `nextflow/examples/run_dupcaller_sample.sh` and `run_sample.slurm.sh`.
+
+### Added (Crick fork)
+- `tests/nextflow/test_wiring.py`: stub runs checking that each run mode reaches its processes and that bad parameter combinations are refused; run in CI by the `nextflow-wiring` job.
+- `justfile` and `CLAUDE.md`.
+- Nextflow: a sample's lanes, one sample-map row each, are joined before trimming; a lane with an empty file is skipped with a warning (the lab's `merge_fastqs.sh`).
+- Nextflow: duplicate-marked BAMs, indexes and MarkDuplicates metrics are published to `<outdir>/bam/` (`publish_bams`), and `--from_bams <dir>` calls again from them without trimming or aligning (the lab's `call_variants.nf`).
+- `just compare-to <ref>`: every published file of every mock case at `<ref>` and here (`tests/mock_pipeline/compare_runs.py`).
+
 ### Added
 - Nextflow: `premade = "hg38"` / `"mm39"` (`--premade hg38` on the command line, `-G` in `examples/run_dupcaller_sample.sh`) replaces `reference`: the run downloads that genome's reference FASTA, DupCaller index, germline VCF and noise mask(s) (listed in `nextflow/assets/premade/<genome>.tsv`) with `gdown`, checks md5s where the source publishes them, unpacks and faidx-indexes the FASTA, stops before alignment if the DupCaller index does not match this DupCaller version, and builds the bwa-mem2 index. Everything is kept in `premade_dir` and reused by later runs. mm39 uses the germline VCF of `premade_strain` (none if unset) and calls chr1-chr19 + chrX unless `regions` is changed; `germline_vcf`/`noise_mask`, if set, replace the premade ones.
 

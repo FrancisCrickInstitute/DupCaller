@@ -33,126 +33,24 @@ DupCaller is a tool for calling somatic mutations and calculating somatic mutati
 
 ## Quick Start
 
-Use this if you have no preferred reference genome file and want to follow the developers' defaults: GRCh38 (human) or GRCm39 (mouse), with the reference FASTA, DupCaller index, germline VCF and noise/SNP mask(s) that `--premade` downloads (listed in [Resources](#resources)).
-
-**What you need:**
-
-- **This repository**, cloned: `git clone https://github.com/AlexandrovLab/DupCaller.git`
-- **Anaconda or equivalent**: if you use another package manager such as mamba or pixi, replace the installation commands with their equivalents.
-- **[Nextflow](https://www.nextflow.io/) 23.10.1 to 24.10.4** on your `PATH` (the versions CI tests; the commands below install 24.10.4). Other versions print a warning at launch and are untested.
-- **Docker** (for local/cloud) **or Singularity** (for HPC) on your `PATH`.  If you are on HPC and do not have Singularity, contact your admin to install it, or follow [Installation](#installation) and [Pipeline](#pipeline) instead.
-- **Paired-end FASTQs** (R1 and R2) for the duplex sample and, if you have one, its matched normal. Without a matched normal, see [Without a matched normal](#quick-start-without-a-matched-normal) below. We do not recommend calling samples <=100x duplex coverage without a matched normal.
-- **Internet access** on the first run, from wherever the tasks run, to pull the containers and download the genome (see [Pre-made genome downloads](#pre-made-genome-downloads) if your compute nodes are offline).
-- **Disk:** ~50 GB for the downloaded genome (hg38), plus space for the Nextflow work directory and results. Expect ~300GB of space per 30x data.
-- **CPUs and memory:** see the box below.
-
-> **Compute requirements — set these for real data.**
->
-> - `nextflow/pipeline.config` ships with conservative defaults, `threads = 1`, `max_cpus = 1` and `max_memory = 96.GB`, which align and call a whole genome on **one core**. Always set `--threads`, `--max_cpus` and `--max_memory` to what your machine or cluster job allows, as in the commands below (e.g. `--threads 32 --max_cpus 32 --max_memory 192.GB`). `DupCaller.py call` asks for 6 GB per CPU and `bwa-mem2 mem | samtools sort` for 32 GB + 1 GB per CPU, each capped by `--max_memory`. The pipeline warns at launch when it would run single-threaded, or when `--max_memory` is below what calling or the bwa-mem2 index needs.
-> - **The first run builds the bwa-mem2 index locally: ~90 GB of RAM on one node for hg38 (~80 GB for mm39), about 20 minutes, once per `--premade_dir`.** No pre-built bwa-mem2 index is hosted, so set `--max_memory` to at least 90.GB for that first run. Every later run reuses the index and needs only the per-CPU memory above.
-> - `--premade` (below) is the recommended route: it downloads the reference and the pre-built DupCaller index, so you never run `DupCaller.py index` yourself. With your own reference, build both indexes once on a large-memory node (bwa-mem2 index needs ~28 bytes of RAM per reference base) and reuse them; see [Before running a real dataset](nextflow/README.md#before-running-a-real-dataset).
-
-**Installation**
-
-With Singularity (HPC):
+This is the Crick fork. On NEMO, with paired-end FASTQs listed in a sample map (`nextflow/examples/sample.map`):
 
 ```bash
-# 1. Nextflow and Singularity
-module load singularity # Module name varies by cluster. Contact HPC admin if you have problem.
-conda create -y -n nextflow -c conda-forge -c bioconda nextflow=24.10.4
-conda activate nextflow
-
-# 2. This repository
-git clone https://github.com/AlexandrovLab/DupCaller.git
-cd DupCaller
-```
-
-With Docker (Linux workstation with sudo):
-
-```bash
-# 1. Docker, and permission to run it without sudo
-curl -fsSL https://get.docker.com | sudo sh
-sudo usermod -aG docker "$USER"
-newgrp docker                    # or log out and back in
-docker run --rm hello-world      # check: prints "Hello from Docker!"
-### If using macOS, install and launch Docker Desktop and ignore step 1
-
-# 2. Nextflow
-conda create -y -n nextflow -c conda-forge -c bioconda nextflow=24.10.4
-conda activate nextflow
-
-# 3. This repository
-git clone https://github.com/AlexandrovLab/DupCaller.git
-cd DupCaller
-```
-
-**Configure your scheduler profile:**
-
-- `-profile singularity,local` runs every step on the current machine (e.g. inside one batch job). To submit each step as its own cluster job instead, use `-profile singularity,slurm` (or `lsf`, `sge`, `pbs`, `pbspro`), and first replace the `"PLEASE CHANGE"` values for that scheduler in the "Scheduler settings" block of `nextflow/pipeline.config` with your cluster's information (nothing site-specific is preset): the run stops with an error until they are set. `null` omits a flag (e.g. no QOS), and `cluster_options` adds extra submit flags such as your account. For SLURM, for example:
-
-  ```groovy
-  slurm_queue     = "your_partition"       // sbatch --partition
-  slurm_qos       = "your_qos"             // sbatch --qos, or null
-  cluster_options = "--account=your_account"
-  ```
-
-**Fill in the sample map:** copy the example into the DupCaller directory and edit it:
-
-```bash
-cd /path/to/DupCaller   # change to the actual path
-cp nextflow/examples/sample.map sample.map                   # with a matched normal
-cp nextflow/examples/sample_tumor_only.map sample.map        # or: without a matched normal
-```
-
-Replace `SAMPLE1` with your sample name and each `/path/to/...` with the absolute path of that FASTQ. Alternatively, create your own tab-delimited `sample.map` with the same header as the example.
-
-**With a matched normal (Singularity):** replace each `/path/to/...` and adjust `--protocol`, the resource flags and `-profile` as described in the notes below the commands.
-
-```bash
-conda activate nextflow
-export NXF_SINGULARITY_CACHEDIR=/path/to/sif_cache   # Singularity only
-cd /path/to/DupCaller                                # change to the actual path
-
 nextflow run nextflow/DupCaller.nf \
-    -c nextflow/nextflow.config -c nextflow/pipeline.config \
-    --premade hg38 --premade_dir /path/to/dupcaller_premade \
+    -profile crick \
+    --sample_map sample.map \
+    --genome hg38 --genome_base /path/to/genomes \
     --protocol renanoseq \
-    --sample_map sample.map --outdir results \
-    --threads 32 --max_cpus 32 --max_memory 192.GB \
-    -profile singularity,slurm -resume
+    --outdir results -resume
 ```
 
-<a id="quick-start-without-a-matched-normal"></a>
-**Without a matched normal (Singularity):** use the tumor-only sample map and add `--tumor_only true`:
+- `--genome hg38` or `mm39` reads the genome's FASTA, germline VCF and noise masks where they live at the Crick (`nextflow/conf/genomes.config`), and DupCaller's indexes from `--genome_base`. Build that folder once per genome with `nextflow run nextflow/build_reference.nf -profile crick --genome hg38 --genome_base /path/to/genomes` ([Reference genomes](nextflow/README.md#reference-genomes)).
+- `--protocol` is your library protocol: `renanoseq`, `nanoseqv2`, `udseq` or `metacs` (see [Protocol Settings](#protocol-settings); the pipeline's `udseq` pattern is the Crick lab's `NNNNNNNNXXXXXXX`).
+- A sample sequenced over several lanes takes one row per lane; the pipeline joins them. Duplicate-marked BAMs are kept in `results/bam/`, and `--from_bams results/bam` calls again from them ([Nextflow README](nextflow/README.md#calling-again-from-bams)).
+- <a id="quick-start-without-a-matched-normal"></a>Without a matched normal, add `--tumor_only` and use `nextflow/examples/sample_tumor_only.map`.
+- Results go to `results/<sample_id>/`. We do not recommend calling samples at or below 100x duplex coverage without a matched normal.
 
-```bash
-conda activate nextflow
-export NXF_SINGULARITY_CACHEDIR=/path/to/sif_cache   # Singularity only
-cd /path/to/DupCaller                                # change to the actual path
-
-nextflow run nextflow/DupCaller.nf \
-    -c nextflow/nextflow.config -c nextflow/pipeline.config \
-    --premade hg38 --premade_dir /path/to/dupcaller_premade \
-    --protocol renanoseq \
-    --tumor_only true \
-    --sample_map sample.map --outdir results \
-    --threads 32 --max_cpus 32 --max_memory 192.GB \
-    -profile singularity,slurm -resume
-```
-
-- `-profile`: `singularity,slurm` submits each step to SLURM (configure it as above); replace `slurm` with your scheduler (`lsf`, `sge`, `pbs`, `pbspro`), or use `singularity,local` to run everything on the current machine. With Docker, use `-profile docker,local` and skip `NXF_SINGULARITY_CACHEDIR`.
-- `NXF_SINGULARITY_CACHEDIR` (on shared storage) keeps the container images, so they are downloaded once instead of into every run's work directory.
-- `--premade hg38` or `--premade mm39`. For mm39, add `--premade_strain STRAIN` (e.g. `C57BL_6NJ`) to use that mouse strain's germline VCF.
-- `--premade_dir` is where the genome is downloaded and kept (~50 GB for hg38). The first run downloads it and builds the bwa-mem2 index (~90 GB of RAM, about 20 minutes for hg38); every later run with the same `--premade_dir`, for any sample, reuses it. Put it on shared storage.
-- Each downloaded file is checked against the md5 listed in `nextflow/assets/premade/<genome>.tsv` (all hg38 files; for mm39, the FASTA and the DupCaller index). On every run, before any alignment, `PREMADE_CHECK_INDEX` opens each of the five DupCaller index files and compares its index schema version with the one the pipeline's DupCaller image reads. An outdated or incompatible index stops the run at that step with an error naming the file; it is never used silently. (With your own reference, `DupCaller.py call` and `estimate` run the same check when they start.)
-- `--protocol` is your library protocol: `renanoseq`, `nanoseqv2`, `udseq` or `metacs`. It sets the barcode pattern and how far from fragment and read ends mutations are ignored (see [Protocol Settings](#protocol-settings)); a wrong barcode pattern silently breaks duplex family formation. `metacs` also needs `--barcode_list barcode_list.txt`, the allowed Tn5 barcodes, one per line. For another protocol, give the barcode pattern with `--barcode_pattern` instead (N = barcode base, X = skipped base).
-- `--threads`/`--max_cpus`/`--max_memory`: **required for real data** (the shipped defaults are 1 CPU; see the box above). Set them to your machine or the largest job your cluster allows. `--max_memory` should be at least 6 GB × `--threads` (what `DupCaller.py call` asks for; e.g. `--threads 16 --max_memory 96.GB`), and at least ~90 GB for the first run.
-- Results go to `results/SAMPLE1/`. Rerunning the same command in the same directory resumes after a failure (`-resume`).
-
-<a id="pre-made-genome-downloads"></a>
-**Pre-made genome downloads.** The first `--premade` run downloads the files listed in `nextflow/assets/premade/<genome>.tsv` (GDC, GATK and Google Drive) from wherever its `PREMADE_DOWNLOAD` tasks run: the current machine with `-profile ...,local`, or the compute nodes with `-profile ...,slurm`. The download tool (`gdown`) is bundled in DupCaller images after 1.2.12, so nothing is installed at run time (the 1.2.12 image still installs `gdown` from PyPI in the download task), but the download itself needs internet access. If your compute nodes have none, either run that first `--premade` run inside an interactive job on a node that does, or download each file in the TSV yourself on such a node and put it in `<premade_dir>/<genome>/` under the name in the TSV's `file` column; files already there are used as is (see [Pre-made genomes](nextflow/README.md#pre-made-genomes---premade)). Later runs need no network access for the genome.
-
-If you have your own reference genome, see [Before running a real dataset](nextflow/README.md#before-running-a-real-dataset) and [One sample with your own reference](nextflow/README.md#one-sample-with-your-own-reference) in the Nextflow README, or run the command-line steps in [Pipeline](#pipeline) below.
+Your own reference, the other parameters, resources and tests are in the [Nextflow README](nextflow/README.md). To run the steps by hand instead, follow [Installation](#installation) and [Pipeline](#pipeline).
 
 ---
 
@@ -252,7 +150,7 @@ pytest tests/mock_pipeline/test_mock_pipeline.py -v -rs
 
 ```bash
 conda activate DupCaller
-conda install -y -c conda-forge -c bioconda nextflow=24.10.4   # if nextflow is not already on PATH
+conda install -y -c conda-forge -c bioconda nextflow=26.04.6   # if nextflow is not already on PATH
 module load singularity                                         # HPC only; skip with Docker
 pytest tests/mock_pipeline/test_mock_pipeline_nextflow.py -v -rs
 ```
@@ -274,7 +172,7 @@ The barcode pattern (`trim -p`, Step 2) and how far from fragment and read ends 
 | UDSeq      | `udseq`             | `NNNNNNNN`                                                        | 15           | 8            |
 | META-CS    | `metacs`            | `BXXXXXXXXXXXXXXXXXXX` with `-bl barcode_list.txt` (see Step 2) | 7 (default)  | 7 (default)  |
 
-The Nextflow pipeline sets all three from the protocol name (`--protocol`, or `protocol` in `pipeline.config`; `metacs` also needs `--barcode_list`); see [Quick Start](#quick-start).
+The Nextflow pipeline sets all three from the protocol name (`--protocol`; `metacs` also needs `--barcode_list`); see [Quick Start](#quick-start).
 
 `-tt`/`--trimF` ignores mutations within N bp of either end of the sequenced fragment, and `-tr`/`--trimR` within N bp of either end of each read. For example, for UDSeq:
 
@@ -780,7 +678,7 @@ Pre-built reference indexes, germline VCFs, and noise masks are available for do
 | Reference genome | [TCGA hg38 reference file](https://api.gdc.cancer.gov/data/254f697d-310d-4d7d-a27b-27fbf767a834)                                                                                      |
 | Reference index  | [Pre-built hg38 DupCaller reference](https://drive.google.com/drive/folders/1v8ut5aky01zujXlZ0b-dhCqImWMyMbiK?usp=drive_link)                                                         |
 | Germline VCF     | af-only-gnomad.hg38.vcf.gz from the GATK somatic resource bundle ([download](https://storage.googleapis.com/gatk-best-practices/somatic-hg38/af-only-gnomad.hg38.vcf.gz), [index](https://storage.googleapis.com/gatk-best-practices/somatic-hg38/af-only-gnomad.hg38.vcf.gz.tbi)) |
-| Noise mask       | NanoSeq `SNP_GRCh38.wgns.bed.gz` and `NOISE_GRCh38.wgns.bed.gz` masks from [NanoSeq](https://github.com/cancerit/NanoSeq); pass both to `call -m` (`--premade hg38` does)               |
+| Noise mask       | NanoSeq `SNP_GRCh38.wgns.bed.gz` and `NOISE_GRCh38.wgns.bed.gz` masks from [NanoSeq](https://github.com/cancerit/NanoSeq); pass both to `call -m` (`--genome hg38` does)                |
 | Gene BED (exome) | `resources/xgen-exome-hyb-panel-v2-targets-hg38.bed.gz` in this repository: IDT xGen Exome Hyb Panel v2 targets, for `estimate -gb` (see [Per-Gene Coverage](#per-gene-coverage)) |
 
 ### Mouse (GRCm39/mm39)

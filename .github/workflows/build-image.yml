@@ -40,7 +40,7 @@ jobs:
           docker run --rm "$img" DupCaller.py --help > /dev/null
           docker run --rm "$img" PERF --help > /dev/null
           docker run --rm "$img" tabix --version | head -1
-          # PREMADE_DOWNLOAD uses the bundled gdown instead of PyPI.
+          # gdown fetches upstream's Google Drive-hosted resources.
           docker run --rm "$img" python -c "import gdown; print('gdown', gdown.__version__)"
           docker run --rm "$img" python -c "import DupCaller_sub; print('DupCaller', DupCaller_sub.__version__)"
 
