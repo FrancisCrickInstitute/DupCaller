@@ -32,6 +32,7 @@ just dev                    # .venv with the package editable and pytest
 just test                   # unit tests, then the wiring tests
 just test-wiring            # stub runs only: about a minute, no containers
 just test-mock [profile]    # 11 real runs in containers; `docker,arm` on Apple Silicon
+just compare-to <ref> [nxf] # all 11 cases at <ref> and here, every published file diffed
 ```
 
 Run the pipeline as `NXF_VER=26.04.6 nextflow run nextflow/DupCaller.nf -profile crick,nemo ...`.
@@ -56,8 +57,8 @@ Run the pipeline as `NXF_VER=26.04.6 nextflow run nextflow/DupCaller.nf -profile
 - **Every process has a `stub:` block and a `script:` block.** After adding a process or a run
   mode, add a row to `tests/nextflow/test_wiring.py`.
 - **A stub run checks wiring only, and the mock test compares only two cases with expected
-  outputs.** Before calling a pipeline change output-neutral, run the old and new pipelines on all
-  11 mock cases and diff every published file (`.claude/knowledge/compare-outputs-old-vs-new.md`).
+  outputs.** Before calling a pipeline change output-neutral, run `just compare-to <old-ref>`,
+  which diffs every published file of all 11 cases (`.claude/knowledge/compare-outputs-old-vs-new.md`).
 - **The pipeline does not download references.** `--genome` reads `<genome_base>/<genome>/`, and
   `genomes()` in `DupCaller.nf` must name the files `fetch_genome.sh` leaves there.
 - **The DupCaller version is written three times:** `__version__` in `src/DupCaller_sub/__init__.py`,
