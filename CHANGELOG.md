@@ -12,6 +12,7 @@ All notable changes to DupCaller are recorded here, most recent first.
 - Nextflow: references are read where they live and indexed once. `conf/genomes.config`, laid out like nf-core's `igenomes.config`, gives each genome's FASTA, germline VCF, noise masks and regions; `build_reference.nf --genome <g> --genome_base <dir>` builds the PERF repeat table, the DupCaller index, the bwa-mem2 index and a missing `.fai` into `<dir>/<g>/`, copying no core file; `DupCaller.nf --genome <g> --genome_base <dir>` reads both. `DupCaller.nf` no longer builds indexes or downloads references: `premade`, `premade_dir`, `premade_strain`, `skip_index`, `skip_bwa_index` and `repeat_tsv` are removed, with `assets/premade/` and the download step. `regions` defaults to the genome's own.
 - Nextflow: the empty `assets/NO_*` placeholder files are removed; an absent optional input is an empty list.
 - Nextflow: `--protocol udseq` uses the Crick lab's pattern `NNNNNNNNXXXXXXX` (8-base barcode, 7 skipped bases) instead of upstream's `NNNNNNNN`; trimming stays 15 and 8.
+- Nextflow: `max_af` defaults to 0.1 (upstream's default is 1), at the lab's request, for runs with a matched normal as well as without. Positions with raw tumour depth below 10x are therefore masked; `--max_af 1` restores upstream's behaviour when a matched normal is given.
 - Nextflow: hg38 calls chr1 to chr22, chrX and chrY (upstream's default leaves out chrY), as do runs with `--reference` and no `regions`.
 
 ### Removed (Crick fork)
