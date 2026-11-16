@@ -26,8 +26,11 @@ process ESTIMATE_BURDEN {
     # CALL_VARIANTS' cached output, so work in a mirror of symlinks to it:
     # new files land in this task and the call output stays unchanged for
     # -resume. estimate appends base coverage to _stats.txt, so that file is
-    # a real copy, without coverage lines from any earlier estimate.
+    # a real copy, without coverage lines from any earlier estimate. cp gives
+    # the mirror the source's mode, which on storage that grants access by
+    # group ACL has empty owner bits, so the owner gets them back first.
     cp -rs "\$(readlink -f ${call_dir})" ${sample_id}
+    chmod -R u+rwX ${sample_id}
     rm ${sample_id}/${sample_id}_stats.txt
     grep -v -e '^SBS Base Coverage' -e '^Indel Base Coverage' -e '^DBS Base Coverage' \\
         "\$(readlink -f ${call_dir})/${sample_id}_stats.txt" > ${sample_id}/${sample_id}_stats.txt
