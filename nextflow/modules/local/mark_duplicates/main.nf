@@ -16,8 +16,12 @@ process MARK_DUPLICATES {
     path "${sample_id}_${type}.mkdp_metrics.txt", emit: metrics
 
     script:
-    // Sort files spill to the task work dir, not Java's default tmp dir
-    // (often a small node-local /tmp).
+    // Sort files spill to tmp/ in the task work dir, not Java's default tmp dir
+    // (often a small node-local /tmp). Picard makes its TMP_DIR world-readable and
+    // writable, and on storage where a new directory's owner bits are empty (access
+    // granted by group ACL) that leaves the owner unable to enter it. So TMP_DIR is
+    // a subdirectory, not the work dir (whose loss would also hide the exit code
+    // from Nextflow), and it gets owner rwx first, which Picard's change keeps.
     def heap_gb = Math.max(1, (task.memory.toGiga() * 0.8) as int)
     """
     if [ "\$(head -c 1 ${bam} | od -An -tx1 | tr -d ' ')" = "00" ]; then
@@ -25,11 +29,12 @@ process MARK_DUPLICATES {
         exit 1
     fi
 
-    gatk --java-options "-Xmx${heap_gb}g -Djava.io.tmpdir=\$PWD" MarkDuplicates \\
+    mkdir -p tmp && chmod u+rwx tmp
+    gatk --java-options "-Xmx${heap_gb}g -Djava.io.tmpdir=\$PWD/tmp" MarkDuplicates \\
         -I ${bam} \\
         -O ${sample_id}_${type}.mkdped.bam \\
         -M ${sample_id}_${type}.mkdp_metrics.txt \\
-        --TMP_DIR \$PWD \\
+        --TMP_DIR \$PWD/tmp \\
         --READ_NAME_REGEX "(?:.*:)?([0-9]+)[^:]*:([0-9]+)[^:]*:([0-9]+)[^:]*\$" \\
         --DUPLEX_UMI \\
         --TAGGING_POLICY OpticalOnly \\
@@ -46,6 +51,7 @@ process MARK_DUPLICATES {
         truncate -s 0 "\$real" && truncate -s "\$size" "\$real" \\
             || echo "WARNING: could not clear \$real" >&2
     done
+    rm -rf tmp
     """
 
     stub:
