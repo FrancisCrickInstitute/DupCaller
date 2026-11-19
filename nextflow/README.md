@@ -197,19 +197,23 @@ Every optional VCF or BED (`germline_vcf`, `noise_mask`, `target_bed`,
 ## Resources
 
 `conf/base.config` sizes each process for whole-genome duplex libraries.
-`threads` (default 16) is the CPU count for `BWA_MEM2_SORT` and
-`CALL_VARIANTS`.
+`threads` (default 16) is the CPU count for `BWA_MEM2_SORT`, and the
+smallest CPU count for `CALL_VARIANTS`, which takes one CPU per 5 GB of
+duplicate-marked BAM, up to 96. DupCaller gives each CPU a fixed share of
+the genome, and calling time grows faster than BAM size: at 16 CPUs a
+285 GB BAM took about 60 h.
 
 | Process | CPUs | Memory | Time |
 |---|---|---|---|
 | `TRIM_BARCODES` | 1 | 4 GB | 12 h |
-| `BWA_MEM2_SORT` | `threads` | 32 GB + 1 GB per CPU | 24 h |
-| `MARK_DUPLICATES` | 1 | 64 GB | 24 h |
-| `CALL_VARIANTS` | `threads` | 6 GB per CPU | 96 h |
-| `ESTIMATE_BURDEN` | 1 | 8 GB | 4 h |
+| `BWA_MEM2_SORT` | `threads` | 32 GB + 1 GB per CPU | 48 h |
+| `MARK_DUPLICATES` | 1 | 64 GB | 48 h |
+| `CALL_VARIANTS` | 1 per 5 GB of BAM, `threads` to 96 | 4 GB per CPU | 72 h |
+| `ESTIMATE_BURDEN` | 1 | 16 GB | 4 h |
 
 A task killed for memory or time (exit 137, 143, 104, 134 or 139) is
-retried twice with the request scaled by the attempt number.
+retried twice with the request scaled by the attempt number, but no task
+asks for more than 72 h, the longest NEMO extends a job to.
 `max_cpus`, `max_memory` and `max_time` cap every request; the `crick`
 profile sets them for NEMO.
 
