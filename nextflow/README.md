@@ -208,7 +208,7 @@ the genome, and calling time grows faster than BAM size: at 16 CPUs a
 | `TRIM_BARCODES` | 1 | 4 GB | 12 h |
 | `BWA_MEM2_SORT` | `threads` | 32 GB + 1 GB per CPU | 48 h |
 | `MARK_DUPLICATES` | 1 | 64 GB | 48 h |
-| `CALL_VARIANTS` | 1 per 5 GB of BAM, `threads` to 96 | 4 GB per CPU | 72 h |
+| `CALL_VARIANTS` | 1 per 5 GB of BAM, `threads` to 96 | 8 GB per CPU | 72 h |
 | `ESTIMATE_BURDEN` | 1 | 16 GB | 4 h |
 
 A task killed for memory or time (exit 137, 143, 104, 134 or 139) is
